@@ -1,0 +1,2 @@
+# Backups with player data must never be published
+*.json
