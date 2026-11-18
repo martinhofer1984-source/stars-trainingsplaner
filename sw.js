@@ -1,8 +1,8 @@
 // Service worker: keeps the app shell and the Firebase SDK cached so the app starts without network.
-// Strategy: serve from cache immediately, refresh the cache in the background
-// (stale-while-revalidate). A new upload is therefore visible on the second start.
+// Strategy: the page is loaded network first (cache when offline), so an update is used at the
+// next start; icons and other files are served from cache and refreshed in the background.
 // Bump CACHE when files are added or removed; keep SDK in sync with index.html.
-const CACHE = "stars-trainingsplaner-v2";
+const CACHE = "stars-trainingsplaner-v3";
 const SDK = "https://www.gstatic.com/firebasejs/12.6.0/";
 const FILES = [
   "./",
@@ -36,6 +36,21 @@ self.addEventListener("fetch", event => {
   // Firestore and sign-in traffic goes straight to the network; only the app files and the SDK are cached.
   const isSdk = req.url.startsWith(SDK);
   if (url.origin !== self.location.origin && !isSdk) return;
+  // The page itself: network first (3 s), so a fixed version is used at the next start; cache when offline
+  if (req.mode === "navigate") {
+    event.respondWith(
+      caches.open(CACHE).then(async cache => {
+        try {
+          const res = await Promise.race([fetch(req), new Promise((_, rej) => setTimeout(() => rej(new Error("timeout")), 3000))]);
+          if (res.ok) cache.put("./index.html", res.clone());
+          return res;
+        } catch {
+          return (await cache.match("./index.html")) || (await cache.match(req, { ignoreSearch: true })) || Response.error();
+        }
+      })
+    );
+    return;
+  }
   event.respondWith(
     caches.open(CACHE).then(async cache => {
       const cached = await cache.match(req, { ignoreSearch: !isSdk });

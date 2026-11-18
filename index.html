@@ -356,16 +356,39 @@ const rRef = id => fb.F.doc(fb.db, "roster", id);
 const mRef = email => fb.F.doc(fb.db, "members", email);
 const tRef = id => fb.F.doc(fb.db, "trainings", id);
 
-// Trainers keep the public roster (no strengths) in line with the players
+// Collects writes and commits them in small batches: Firestore limits the document lookups the
+// security rules may do per request. All batches are handed over at once, so they apply locally
+// right away, also offline.
+function batcher(){
+  const ops = [];
+  return {
+    set: (r, d) => ops.push(b => b.set(r, d)),
+    update: (r, d) => ops.push(b => b.update(r, d)),
+    delete: r => ops.push(b => b.delete(r)),
+    get size(){ return ops.length; },
+    commit(){
+      const all = [];
+      for (let i = 0; i < ops.length; i += 8) { const b = fb.F.writeBatch(fb.db); ops.slice(i, i + 8).forEach(f => f(b)); all.push(b.commit()); }
+      return Promise.all(all);
+    },
+  };
+}
+
+// Trainers keep the public roster (no strengths) in line with the players.
+// One attempt at a time, and no further attempts after a rejection, so a refused write can never loop.
+let rosterSync = null, rosterSyncFailed = false;
 function syncRoster(){
-  if (!isTrainer() || !S.loaded.players || !S.loaded.roster) return;
-  const b = fb.F.writeBatch(fb.db); let n = 0;
+  if (!isTrainer() || !S.loaded.players || !S.loaded.roster || rosterSync || rosterSyncFailed) return;
+  const b = batcher();
   for (const p of Object.values(S.players)) {
     const want = rosterOf(p), have = S.roster[p.id];
-    if (!have || have.name!==want.name || have.pos!==want.pos || have.active!==want.active || have.access!==want.access) { b.set(rRef(p.id), want); n++; }
+    if (!have || have.name!==want.name || have.pos!==want.pos || have.active!==want.active || have.access!==want.access) b.set(rRef(p.id), want);
   }
-  for (const id of Object.keys(S.roster)) if (!S.players[id]) { b.delete(rRef(id)); n++; }
-  if (n) fire(b.commit());
+  for (const id of Object.keys(S.roster)) if (!S.players[id]) b.delete(rRef(id));
+  if (!b.size) return;
+  rosterSync = b.commit()
+    .catch(e => { rosterSyncFailed = true; status("Die Spielerliste für Mitspieler konnte nicht abgeglichen werden ("+(e?.code||"Fehler")+").", true); })
+    .finally(() => { rosterSync = null; });
 }
 
 // Adds to a batch what it takes to move a player's access from one address to another
@@ -385,11 +408,11 @@ const api = {
   addPlayer(name, pos, rating){
     let id = slug(name); while (S.players[id]) id += "-2";
     const p = {name, pos, rating, active:true};
-    const b = fb.F.writeBatch(fb.db); b.set(pRef(id), p); b.set(rRef(id), rosterOf(p)); fire(b.commit());
+    const b = batcher(); b.set(pRef(id), p); b.set(rRef(id), rosterOf(p)); fire(b.commit());
   },
   updPlayer(id, patch){
     const p = {...S.players[id], ...patch};
-    const b = fb.F.writeBatch(fb.db); b.update(pRef(id), patch); b.set(rRef(id), rosterOf(p));
+    const b = batcher(); b.update(pRef(id), patch); b.set(rRef(id), rosterOf(p));
     if (patch.name && p.email && p.email !== S.me.email) b.update(mRef(p.email), {name: patch.name});
     fire(b.commit());
   },
@@ -399,7 +422,7 @@ const api = {
     if (email && !validEmail(email)) { status("Bitte eine gültige E-Mail-Adresse eingeben.", true); return false; }
     const other = Object.values(S.players).find(o => o.id !== id && (o.email||"").toLowerCase() === email);
     if (email && other) { status(`Diese Adresse ist schon bei ${other.name} eingetragen.`, true); return false; }
-    const b = fb.F.writeBatch(fb.db);
+    const b = batcher();
     accessOps(b, id, p.name, old, email);
     b.update(pRef(id), {email: email || fb.F.deleteField()});
     b.set(rRef(id), rosterOf({...p, email}));
@@ -408,14 +431,14 @@ const api = {
     return true;
   },
   delPlayer(id){
-    const p = S.players[id], b = fb.F.writeBatch(fb.db);
+    const p = S.players[id], b = batcher();
     accessOps(b, id, p.name, (p.email||"").toLowerCase(), "");
     b.delete(pRef(id)); b.delete(rRef(id));
     fire(b.commit());
   },
   // Replaces all players from a backup; trainings stay as they are
   replacePlayers(players){
-    const b = fb.F.writeBatch(fb.db);
+    const b = batcher();
     for (const p of Object.values(S.players)) if (!players[p.id]) { accessOps(b, p.id, p.name, (p.email||"").toLowerCase(), ""); b.delete(pRef(p.id)); b.delete(rRef(p.id)); }
     for (const [id, raw] of Object.entries(players)) {
       const email = validEmail(String(raw.email||"").toLowerCase()) ? String(raw.email).toLowerCase() : "";

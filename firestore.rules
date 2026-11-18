@@ -17,14 +17,16 @@ service cloud.firestore {
     function myEmail() { return request.auth.token.email.lower(); }
     function myDoc() { return /databases/$(database)/documents/members/$(myEmail()); }
 
-    function isMember() {
+    function signedIn() {
       return request.auth != null
         && request.auth.token.email is string
-        && request.auth.token.email_verified == true
-        && exists(myDoc());
+        && request.auth.token.email_verified == true;
     }
+    function isMember() { return signedIn() && exists(myDoc()); }
     function me() { return get(myDoc()).data; }
-    function isTrainer() { return isMember() && me().get('role', 'trainer') == 'trainer'; }
+    // A single document lookup per check: Firestore limits lookups per request, and trainers
+    // write several documents in one batch. get() on a missing document denies the request.
+    function isTrainer() { return signedIn() && me().get('role', 'trainer') == 'trainer'; }
     function myPlayerId() { return me().get('playerId', ''); }
 
     match /members/{email} {
