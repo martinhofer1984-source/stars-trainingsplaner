@@ -102,6 +102,15 @@ service cloud.firestore {
       }
     }
 
+    // Team drafts: only trainers; players see teams once a trainer copies them into the training
+    match /drafts/{trainingId} {
+      allow read, delete: if isTrainer();
+      allow create, update: if isTrainer()
+        && request.resource.data.keys().hasOnly(['A', 'B', 'at'])
+        && request.resource.data.A is list
+        && request.resource.data.B is list;
+    }
+
     // Everything else stays closed.
     match /{document=**} {
       allow read, write: if false;

@@ -237,7 +237,7 @@ const POS = {G:"Tor", D:"Verteidigung", O:"Sturm"};
 const POS_SHORT = {G:"T", D:"V", O:"S"};
 const SCALE = 4;                 // 4 points of average difference = 10:1 expected odds
 const DEADLINE_MS = 24*3600e3;   // players can answer up to 24 h before the start (enforced in firestore.rules)
-const S = {user:null, authKnown:false, denied:false, role:null, me:null, players:{}, roster:{}, trainings:[], sel:null,
+const S = {user:null, authKnown:false, denied:false, role:null, me:null, players:{}, roster:{}, trainings:[], sel:null, drafts:{},
            loaded:{players:false, roster:false, trainings:false}, sort:{key:"name",dir:1}};
 let pendingRender = false;
 
@@ -304,7 +304,7 @@ async function initStore(){
 }
 
 function resetData(){
-  S.denied=false; S.role=null; S.me=null; S.players={}; S.roster={}; S.trainings=[]; S.sel=null;
+  S.denied=false; S.role=null; S.me=null; S.players={}; S.roster={}; S.trainings=[]; S.sel=null; S.drafts={};
   S.loaded={players:false, roster:false, trainings:false};
   document.body.classList.remove("is-player");
 }
@@ -344,6 +344,10 @@ function watchData(){
     if (!S.trainings.some(t => t.id === S.sel)) S.sel = (S.trainings.find(t => !t.cancelled) || S.trainings[0] || {}).id || null;
     S.loaded.trainings = true; clearTimeout(timer); status(""); render();
   }, dbFail));
+  // Team drafts stay with the trainers until they are published into the training
+  if (isTrainer()) roleUnsubs.push(F.onSnapshot(F.collection(db, "drafts"), s => {
+    S.drafts = {}; s.forEach(d => S.drafts[d.id] = d.data()); render();
+  }, dbFail));
   if (isTrainer()) roleUnsubs.push(F.onSnapshot(F.collection(db, "players"), s => {
     S.players = {}; s.forEach(d => S.players[d.id] = {id:d.id, ...d.data()});
     S.loaded.players = true; syncRoster(); render();
@@ -355,6 +359,7 @@ const pRef = id => fb.F.doc(fb.db, "players", id);
 const rRef = id => fb.F.doc(fb.db, "roster", id);
 const mRef = email => fb.F.doc(fb.db, "members", email);
 const tRef = id => fb.F.doc(fb.db, "trainings", id);
+const dRef = id => fb.F.doc(fb.db, "drafts", id);
 
 // Collects writes and commits them in small batches: Firestore limits the document lookups the
 // security rules may do per request. All batches are handed over at once, so they apply locally
@@ -454,7 +459,10 @@ const api = {
       {start: fb.F.Timestamp.fromMillis(startMs), place, note, cancelled:false, responses:{}, teams:null, createdAt:Date.now()}));
   },
   updTraining(id, patch){ fire(fb.F.updateDoc(tRef(id), patch)); },
-  delTraining(id){ fire(fb.F.deleteDoc(tRef(id))); },
+  delTraining(id){ const b = batcher(); b.delete(tRef(id)); b.delete(dRef(id)); fire(b.commit()); },
+  setDraft(tid, tm){ fire(fb.F.setDoc(dRef(tid), {A:tm.A, B:tm.B, at:Date.now()})); },
+  publish(t, tm){ api.updTraining(t.id, {teams: {A:tm.A, B:tm.B, at:Date.now()}}); },
+  unpublish(t){ api.updTraining(t.id, {teams: null}); },
   answer(t, pid, val){ fire(fb.F.updateDoc(tRef(t.id), new fb.F.FieldPath("responses", pid), val)); },
 };
 
@@ -521,7 +529,7 @@ function generate(t){
   const all = [...seen.values()]; const min = Math.min(...all.map(x=>x.c));
   const tol = +$("#tol").value; const pool = all.filter(x => x.c <= min + tol + 1e-9);
   const pick = pool[Math.floor(Math.random()*pool.length)];
-  api.updTraining(t.id, {teams: {A:pick.A.map(p=>p.id), B:pick.B.map(p=>p.id), at:Date.now()}});
+  api.setDraft(t.id, {A:pick.A.map(p=>p.id), B:pick.B.map(p=>p.id)});
   status("");
 }
 
@@ -616,23 +624,45 @@ function teamHTML(cls, label, ids, edit){
   }</div>`;
 }
 
+const isTeams = x => !!x && Array.isArray(x.A) && Array.isArray(x.B);
+const published = t => isTeams(t.teams) ? t.teams : null;
+// What the trainer works on: the draft, or the published teams when there is no draft
+const draftOf = t => isTeams(S.drafts[t.id]) ? S.drafts[t.id] : published(t);
+const sameTeams = (x, y) => { const k = a => [...a].sort().join("|"); return isTeams(x) && isTeams(y) && k(x.A)===k(y.A) && k(x.B)===k(y.B); };
+const dWhen = ms => ms ? `${dDay(ms)} ${dTime(ms)} Uhr` : "";
+
 function renderTeams(){
   const t = selTraining(), box = $("#draft"); if (!t || t.cancelled) { box.innerHTML = ""; return; }
-  const tm = t.teams;
-  if (!tm || !Array.isArray(tm.A)) {
-    box.innerHTML = `<p class="muted">${isTrainer() ? "Wenn die Zusagen stehen, „Teams erzeugen“ wählen. Torhüter, Verteidiger und Stürmer werden gleichmäßig verteilt; aus tausenden zufälligen Aufteilungen wird eine der ausgeglichensten gewählt. Die Teams sehen danach alle Mitspieler, ohne Stärken." : "Die Teams werden vom Trainer eingeteilt und erscheinen hier."}</p>`;
+  if (!isTrainer()) {
+    const pub = published(t);
+    box.innerHTML = pub
+      ? `<div class="teams">${teamHTML("a","Team A",pub.A,false)}${teamHTML("b","Team B",pub.B,false)}</div>
+         <div class="row"><button id="btnCopy">Als Text kopieren</button></div>`
+      : `<p class="muted">Die Teams erscheinen hier, sobald der Trainer sie freigegeben hat.</p>`;
+    return;
+  }
+  const tm = draftOf(t), pub = published(t);
+  if (!tm) {
+    box.innerHTML = `<p class="muted">Wenn die Zusagen stehen, „Teams erzeugen“ wählen. Torhüter, Verteidiger und Stürmer werden gleichmäßig verteilt; aus tausenden zufälligen Aufteilungen wird eine der ausgeglichensten gewählt. Mitspieler sehen die Teams erst, wenn du sie freigibst, und nie die Stärken.</p>`;
     return;
   }
   const inSet = new Set(attendees(t).map(r=>r.id)), teamSet = new Set([...tm.A, ...tm.B]);
   const stale = inSet.size !== teamSet.size || [...inSet].some(id => !teamSet.has(id));
   const A = tm.A.map(id=>S.players[id]).filter(Boolean), B = tm.B.map(id=>S.players[id]).filter(Boolean);
-  const extra = isTrainer()
-    ? `<p class="balance">Unterschied im Schnitt: <b>${fmt(Math.abs(mean(A)-mean(B)))}</b> · erwartete Siegchance Team A: <b>${Math.round(100/(1+Math.pow(10,(mean(B)-mean(A))/SCALE)))} %</b></p>`
-    : "";
-  box.innerHTML = `${stale && isTrainer() ? `<p class="note warn">Seit der Einteilung hat sich die Anwesenheit geändert. Neu mischen oder Spieler verschieben.</p>` : ""}
-    <div class="teams">${teamHTML("a","Team A",tm.A,isTrainer())}${teamHTML("b","Team B",tm.B,isTrainer())}</div>
-    ${extra}
-    <div class="row"><button id="btnGen2" class="trainer-only">Neu mischen</button><button id="btnCopy">Als Text kopieren</button></div>`;
+  const same = sameTeams(pub, tm);
+  const state = !pub ? `<p class="note">Entwurf – noch nicht freigegeben. Mitspieler sehen die Teams erst nach der Freigabe.</p>`
+    : same ? `<p class="note">Freigegeben${pub.at ? " am "+dWhen(pub.at) : ""}. Mitspieler sehen diese Teams.</p>`
+    : `<p class="note warn">Geändert. Mitspieler sehen noch die zuletzt freigegebene Einteilung.</p>`;
+  box.innerHTML = `${state}
+    ${stale ? `<p class="note warn">Seit der Einteilung hat sich die Anwesenheit geändert. Neu mischen oder Spieler verschieben.</p>` : ""}
+    <div class="teams">${teamHTML("a","Team A",tm.A,true)}${teamHTML("b","Team B",tm.B,true)}</div>
+    <p class="balance">Unterschied im Schnitt: <b>${fmt(Math.abs(mean(A)-mean(B)))}</b> · erwartete Siegchance Team A: <b>${Math.round(100/(1+Math.pow(10,(mean(B)-mean(A))/SCALE)))} %</b></p>
+    <div class="row">
+      ${same ? "" : `<button id="btnPublish" class="primary">${pub ? "Änderungen freigeben" : "Teams freigeben"}</button>`}
+      <button id="btnGen2">Neu mischen</button>
+      <button id="btnCopy">Als Text kopieren</button>
+      ${pub ? `<button id="btnUnpublish" class="danger">Freigabe zurückziehen</button>` : ""}
+    </div>`;
 }
 
 function renderPlayers(){
@@ -661,10 +691,10 @@ function renderKonto(){
   $("#roleInfo").textContent = (isTrainer() ? "Rolle: Trainer" : "Rolle: Mitspieler") + (my ? ` · Spieler: ${my}` : "");
 }
 
-function teamsText(t){
+function teamsText(t, tm){
   const name = id => S.roster[id]?.name || S.players[id]?.name;
   const l = ids => ids.map(id => ({id, n:name(id), p:(S.roster[id]||S.players[id]||{}).pos})).filter(x=>x.n).map(x=>`${x.n} (${POS_SHORT[x.p]||"S"})`).join(", ");
-  return `Training ${dDay(t.start)} ${dTime(t.start)} Uhr${t.place ? " – "+t.place : ""}\nTeam A: ${l(t.teams.A)}\nTeam B: ${l(t.teams.B)}`;
+  return `Training ${dDay(t.start)} ${dTime(t.start)} Uhr${t.place ? " – "+t.place : ""}\nTeam A: ${l(tm.A)}\nTeam B: ${l(tm.B)}`;
 }
 async function copy(text, btn){
   try { await navigator.clipboard.writeText(text); const x=btn.textContent; btn.textContent="Kopiert"; setTimeout(()=>btn.textContent=x,1500); }
@@ -688,12 +718,14 @@ document.addEventListener("click", e => {
     }
     else if (t.dataset.toggle && tr) api.answer(tr, t.dataset.toggle, answerOf(tr, t.dataset.toggle) === "in" ? "out" : "in");
     else if ((t.id==="btnGen" || t.id==="btnGen2") && tr) generate(tr);
-    else if (t.dataset.move && tr?.teams) {
-      const id = t.dataset.move, inA = tr.teams.A.includes(id);
-      const A = tr.teams.A.filter(x=>x!==id), B = tr.teams.B.filter(x=>x!==id); (inA ? B : A).push(id);
-      api.updTraining(tr.id, {teams:{...tr.teams, A, B}});
+    else if (t.dataset.move && tr && draftOf(tr)) {
+      const tm = draftOf(tr), id = t.dataset.move, inA = tm.A.includes(id);
+      const A = tm.A.filter(x=>x!==id), B = tm.B.filter(x=>x!==id); (inA ? B : A).push(id);
+      api.setDraft(tr.id, {A, B});
     }
-    else if (t.id==="btnCopy" && tr?.teams) copy(teamsText(tr), t);
+    else if (t.id==="btnCopy" && tr) { const tm = isTrainer() ? draftOf(tr) : published(tr); if (tm) copy(teamsText(tr, tm), t); }
+    else if (t.id==="btnPublish" && tr && draftOf(tr)) { api.publish(tr, draftOf(tr)); status("Teams freigegeben. Alle Mitspieler sehen sie jetzt."); }
+    else if (t.id==="btnUnpublish" && tr) confirmBtn(t, () => { api.unpublish(tr); status("Freigabe zurückgezogen. Mitspieler sehen keine Teams mehr."); });
     else if (t.dataset.tcancel) { const x = S.trainings.find(y=>y.id===t.dataset.tcancel); api.updTraining(x.id, {cancelled: !x.cancelled}); }
     else if (t.dataset.tdel) confirmBtn(t, () => api.delTraining(t.dataset.tdel));
     else if (t.id==="btnAddTraining") {
