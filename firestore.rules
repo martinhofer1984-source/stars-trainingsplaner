@@ -1,36 +1,103 @@
 rules_version = '2';
 
 // Access rules for the Stars Trainingsplaner.
-// Only signed-in users whose e-mail address has a document in the "members" collection
-// (document ID = e-mail address in lower case) may read or change data.
-// Members are added and removed in the Firebase console only, never from the app.
+//
+// Who may do what is decided by the document members/{e-mail in lower case}:
+//   role "trainer" (or no role, for the first members added in the console): everything
+//   role "player": read the roster and the trainings, and say yes/no for the own
+//                  player (playerId) up to 24 hours before the training starts
+// Trainers are only ever created in the Firebase console. In the app a trainer can
+// give access to players (role "player"), never to further trainers.
+//
+// Player strengths live in "players", which only trainers can read. Everything players
+// may see (name, position) is copied into "roster".
 service cloud.firestore {
   match /databases/{database}/documents {
 
+    function myEmail() { return request.auth.token.email.lower(); }
+    function myDoc() { return /databases/$(database)/documents/members/$(myEmail()); }
+
     function isMember() {
       return request.auth != null
+        && request.auth.token.email is string
         && request.auth.token.email_verified == true
-        && exists(/databases/$(database)/documents/members/$(request.auth.token.email.lower()));
+        && exists(myDoc());
     }
+    function me() { return get(myDoc()).data; }
+    function isTrainer() { return isMember() && me().get('role', 'trainer') == 'trainer'; }
+    function myPlayerId() { return me().get('playerId', ''); }
 
     match /members/{email} {
-      allow read: if isMember();
-      allow write: if false;
+      allow read: if isTrainer()
+        || (request.auth != null && request.auth.token.email is string && email == myEmail());
+      // Trainers hand out and change player access
+      allow create: if isTrainer()
+        && email == email.lower()
+        && request.resource.data.keys().hasOnly(['name', 'role', 'playerId'])
+        && request.resource.data.role == 'player'
+        && request.resource.data.name is string
+        && request.resource.data.playerId is string;
+      allow update: if isTrainer()
+        && request.resource.data.keys().hasOnly(['name', 'role', 'playerId'])
+        && (
+          // a player's access
+          (resource.data.get('role', 'trainer') == 'player' && request.resource.data.role == 'player')
+          // a trainer links or unlinks the own player entry, nothing else
+          || (email == myEmail()
+              && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['playerId']))
+        );
+      allow delete: if isTrainer() && resource.data.get('role', 'trainer') == 'player';
     }
 
     match /players/{playerId} {
-      allow read, delete: if isMember();
-      allow create, update: if isMember()
-        && request.resource.data.keys().hasOnly(['name', 'pos', 'rating', 'active'])
+      allow read, delete: if isTrainer();
+      allow create, update: if isTrainer()
+        && request.resource.data.keys().hasOnly(['name', 'pos', 'rating', 'active', 'email'])
         && request.resource.data.name is string && request.resource.data.name.size() <= 80
         && request.resource.data.pos in ['G', 'D', 'O']
         && request.resource.data.rating is number
         && request.resource.data.rating >= 1 && request.resource.data.rating <= 10
-        && request.resource.data.active is bool;
+        && request.resource.data.active is bool
+        && (!('email' in request.resource.data) || request.resource.data.email is string);
     }
 
-    match /state/current {
-      allow read, write: if isMember();
+    match /roster/{playerId} {
+      allow read: if isMember();
+      allow delete: if isTrainer();
+      allow create, update: if isTrainer()
+        && request.resource.data.keys().hasOnly(['name', 'pos', 'active', 'access'])
+        && request.resource.data.name is string && request.resource.data.name.size() <= 80
+        && request.resource.data.pos in ['G', 'D', 'O']
+        && request.resource.data.active is bool
+        && request.resource.data.access is bool;
+    }
+
+    match /trainings/{trainingId} {
+      allow read: if isMember();
+      allow delete: if isTrainer();
+      allow create: if isTrainer() && validTraining(request.resource.data);
+      allow update: if (isTrainer() && validTraining(request.resource.data))
+        || ownAnswer();
+
+      function validTraining(t) {
+        return t.keys().hasOnly(['start', 'place', 'note', 'cancelled', 'responses', 'teams', 'createdAt'])
+          && t.start is timestamp
+          && t.place is string && t.place.size() <= 80
+          && t.note is string && t.note.size() <= 200
+          && t.cancelled is bool
+          && t.responses is map;
+      }
+
+      // A player changes only the own answer, only to yes/no, up to 24 h before the start
+      function ownAnswer() {
+        return isMember()
+          && myPlayerId() != ''
+          && resource.data.get('cancelled', false) == false
+          && request.time < resource.data.start - duration.value(24, 'h')
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['responses'])
+          && request.resource.data.responses.diff(resource.data.responses).affectedKeys().hasOnly([myPlayerId()])
+          && request.resource.data.responses[myPlayerId()] in ['in', 'out'];
+      }
     }
 
     // Everything else stays closed.
