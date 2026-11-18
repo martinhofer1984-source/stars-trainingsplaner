@@ -10,6 +10,8 @@
       ".firebaserc",
       ".gitignore",
       "**/.*",
+      ".git/**",
+      ".firebase/**",
       "**/*.json",
       "**/node_modules/**"
     ],
