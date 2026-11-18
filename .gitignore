@@ -1,2 +1,5 @@
 # Backups with player data must never be published
 *.json
+!firebase.json
+# Firebase CLI cache
+.firebase/
