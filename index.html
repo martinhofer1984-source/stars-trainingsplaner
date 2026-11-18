@@ -106,6 +106,30 @@ body.ro .write{display:none!important}
 <div class="wrap"><main>
   <div id="status" class="note" hidden></div>
 
+  <section data-section="loading" class="panel"><p class="muted">Wird geladen …</p></section>
+
+  <section data-section="login" class="panel">
+    <h2>Anmelden</h2>
+    <p class="muted">Die Spieler liegen in der Mannschafts-Datenbank. Melde dich mit einer freigeschalteten Adresse an. Danach funktioniert die App auch ohne Netz.</p>
+    <div class="row"><button id="btnGoogle" class="primary">Mit Google anmelden</button></div>
+    <div class="poshead">oder per E-Mail-Link</div>
+    <div class="row">
+      <input id="loginEmail" type="email" placeholder="deine@adresse.com" autocomplete="email" aria-label="E-Mail-Adresse" style="flex:1 1 220px">
+      <button id="btnSendLink">Anmeldelink senden</button>
+    </div>
+    <p class="muted" id="linkHint" hidden>Öffne die E-Mail auf diesem Gerät und tippe auf den Link. Öffnet er sich nicht in dieser App (z.&nbsp;B. am iPhone), den Link lange drücken, „Link kopieren“ wählen und hier einfügen:</p>
+    <div class="row" id="linkRow" hidden>
+      <input id="loginLink" placeholder="Link aus der E-Mail einfügen" aria-label="Anmeldelink" style="flex:1 1 220px">
+      <button id="btnUseLink">Anmelden</button>
+    </div>
+  </section>
+
+  <section data-section="denied" class="panel">
+    <h2>Kein Zugriff</h2>
+    <p>Die Adresse <b id="deniedEmail"></b> ist für diese Mannschaft nicht freigeschaltet. Bitte den Verwalter, sie freizuschalten, oder melde dich mit einer anderen Adresse an.</p>
+    <div class="row"><button id="btnLogout2">Abmelden</button></div>
+  </section>
+
   <section data-section="training" class="panel">
     <h2>Anwesend <small id="presentCount"></small></h2>
     <div id="presentList" class="posgroup"></div>
@@ -139,13 +163,20 @@ body.ro .write{display:none!important}
   </section>
   <section data-section="spieler" class="panel">
     <h2>Datensicherung</h2>
-    <p class="muted">Die Daten liegen nur in diesem Browser auf diesem Gerät. Löscht der Browser seine Website-Daten, sind sie weg. Sichere sie deshalb regelmäßig als Datei. Mit einer Sicherung kannst du die Daten auch auf ein anderes Gerät übertragen.</p>
+    <p class="muted">Die Daten liegen in der Mannschafts-Datenbank und werden zwischen allen angemeldeten Geräten abgeglichen. Eine Sicherung als Datei schützt zusätzlich vor versehentlichem Löschen.</p>
     <div class="row">
       <button id="btnExport" class="primary">Daten sichern (.json)</button>
       <label class="btn" for="importFile">Sicherung auswählen …</label>
       <input type="file" id="importFile" accept=".json,application/json" hidden>
       <button id="btnImportConfirm" class="danger" hidden></button>
+      <button id="btnMigrate" hidden></button>
     </div>
+  </section>
+
+  <section data-section="spieler" class="panel">
+    <h2>Konto</h2>
+    <p>Angemeldet als <b id="userEmail"></b> <span id="netState" class="muted"></span></p>
+    <div class="row"><button id="btnLogout">Abmelden</button></div>
   </section>
 </main></div>
 
@@ -171,52 +202,129 @@ const byName = (a,b) => a.name.localeCompare(b.name,"de");
 
 function status(msg, warn){ const el=$("#status"); el.hidden=!msg; el.textContent=msg||""; el.classList.toggle("warn",!!warn); }
 
-/* ---------- storage ---------- */
+/* ---------- storage: Firebase (Firestore with offline cache) ---------- */
+// These values only identify the project; access is controlled by the Firestore security rules.
+const FIREBASE_CONFIG = {
+  apiKey: "AIzaSyAWkj1u8_masbFdev9Mj2ZYmmPAFFwFiTk",
+  authDomain: "stars-trainingsplaner.firebaseapp.com",
+  projectId: "stars-trainingsplaner",
+  storageBucket: "stars-trainingsplaner.firebasestorage.app",
+  messagingSenderId: "817212958984",
+  appId: "1:817212958984:web:308f94cec046b3f05be4bd"
+};
+const SDK = "https://www.gstatic.com/firebasejs/12.6.0/";   // keep in sync with sw.js
+const LEGACY_KEY = "stars-trainingsplaner-v1";              // device-only data of the offline version
+const EMAIL_KEY = "stars-login-email";
+let fb = null, unsubs = [];
+
+// Firestore write promises resolve only once the server confirms; offline they stay pending.
+// The local cache applies writes immediately, so the UI never waits on them.
+const fire = p => { p.catch(e => status(e?.code==="permission-denied" ? "Keine Schreibrechte für diese Daten." : "Speichern fehlgeschlagen ("+(e?.code||"Fehler")+").", true)); };
+
 async function initStore(){
-  let db = null, user = null;
-  try { db = window.claude?.use ? await window.claude.use("db") : null; } catch { db = null; }
-  try { user = window.claude?.use ? await window.claude.use("user") : null; } catch { user = null; }
-  if (db) {
-    S.mode = "db";
-    try { const can = await user?.can?.("data.write"); if (can === false) { S.ro = true; document.body.classList.add("ro"); } } catch {}
-    const players = db.collection("players"), cur = db.doc("state/current");
-    const timer = setTimeout(()=>{ if(!S.loaded) status("Die Daten sind gerade nicht erreichbar. Die Seite versucht es weiter.", true); }, 10000);
-    const fail = e => status("Daten konnten nicht geladen werden ("+(e?.code||"Fehler")+").", true);
-    players.onSnapshot(s => { S.players={}; s.docs.forEach(d => S.players[d.id] = {id:d.id, ...d.data()}); S.loaded=true; clearTimeout(timer); if(!s.metadata.fromCache) status(""); render(); }, fail);
-    cur.onSnapshot(d => { const v = d.exists ? d.data() : {}; S.present = new Set(v.present || []); if (v.teams && !S.draft) S.draft = {A:[...v.teams.A], B:[...v.teams.B], date:v.teams.date}; render(); }, fail);
-    api = {
-      setPlayer:(id,data)=>players.doc(id).set(data),
-      updPlayer:(id,data)=>players.doc(id).update(data),
-      setCurrent:data=>cur.set(data),
-    };
-  } else {
-    S.mode = "local";
-    const KEY = "stars-trainingsplaner-v1";
-    let data = {players:{}, present:[], teams:null};
-    try { data = JSON.parse(localStorage.getItem(KEY)) || data; } catch {}
-    S.players = data.players || {}; S.present = new Set(data.present || []); if (data.teams) S.draft = data.teams;
-    const save = () => { try { localStorage.setItem(KEY, JSON.stringify({players:S.players, present:[...S.present], teams:S.draft})); } catch {} render(); };
-    api = {
-      setPlayer:async(id,d)=>{ S.players[id]={id,...d}; save(); },
-      updPlayer:async(id,d)=>{ S.players[id]={...S.players[id],...d}; save(); },
-      setCurrent:async()=>save(),
-      delPlayer:async id=>{
-        delete S.players[id]; S.present.delete(id);
-        if (S.draft) { S.draft.A = S.draft.A.filter(x=>x!==id); S.draft.B = S.draft.B.filter(x=>x!==id); }
-        save();
-      },
-      replaceAll:d=>{ S.players=d.players||{}; S.present=new Set(d.present||[]); S.draft=d.teams||null; save(); },
-    };
-    S.loaded = true;
-    render();
+  try {
+    const [App, A, F] = await Promise.all([import(SDK+"firebase-app.js"), import(SDK+"firebase-auth.js"), import(SDK+"firebase-firestore.js")]);
+    const app = App.initializeApp(FIREBASE_CONFIG);
+    const auth = A.getAuth(app); auth.languageCode = "de";
+    const db = F.initializeFirestore(app, {localCache: F.persistentLocalCache({tabManager: F.persistentMultipleTabManager()})});
+    fb = {A, F, auth, db};
+    api = makeApi();
+    if (A.isSignInWithEmailLink(auth, location.href)) {
+      const email = localStorage.getItem(EMAIL_KEY) || $("#loginEmail").value.trim();
+      if (email) await finishEmailLink(email, location.href);
+      else { S.pendingLink = location.href; status("Bitte die E-Mail-Adresse eingeben, an die der Link ging, und „Anmelden“ tippen."); $("#linkRow").hidden = false; $("#loginLink").value = location.href; }
+    }
+    A.onAuthStateChanged(auth, user => {
+      S.user = user; S.authKnown = true; S.denied = false;
+      if (user) startData(); else { stopData(); S.players = {}; S.present = new Set(); S.draft = null; S.loaded = false; }
+      render();
+    });
+  } catch (e) {
+    S.authKnown = true; render();
+    status("Die App konnte die Datenbank nicht laden. Beim allerersten Start ist eine Internetverbindung nötig.", true);
   }
 }
 
-let curTimer = null;
-function saveCurrent(){
-  clearTimeout(curTimer);
-  curTimer = setTimeout(()=>api.setCurrent({present:[...S.present], teams:S.draft, updatedAt:Date.now()})
-    .catch(e=>status("Speichern fehlgeschlagen ("+(e?.code||"Fehler")+").",true)), 500);
+function startData(){
+  stopData();
+  const {F, db} = fb;
+  S.loaded = false;
+  const timer = setTimeout(()=>{ if(!S.loaded) status("Die Daten sind gerade nicht erreichbar. Die App versucht es weiter.", true); }, 10000);
+  const fail = e => {
+    clearTimeout(timer);
+    if (e?.code === "permission-denied") { S.denied = true; render(); }
+    else status("Daten konnten nicht geladen werden ("+(e?.code||"Fehler")+").", true);
+  };
+  unsubs.push(F.onSnapshot(F.collection(db, "players"), s => {
+    S.players = {}; s.forEach(d => S.players[d.id] = {id:d.id, ...d.data()});
+    S.loaded = true; S.denied = false; clearTimeout(timer); render();
+  }, fail));
+  unsubs.push(F.onSnapshot(F.doc(db, "state", "current"), d => {
+    const v = d.exists() ? d.data() : {};
+    S.present = new Set(v.present || []);
+    S.draft = v.teams && Array.isArray(v.teams.A) ? {A:[...v.teams.A], B:[...v.teams.B], date:v.teams.date} : null;
+    render();
+  }, fail));
+}
+function stopData(){ unsubs.forEach(u => u()); unsubs = []; }
+
+function makeApi(){
+  const {F, db} = fb;
+  const pRef = id => F.doc(db, "players", id);
+  return {
+    setPlayer: (id,d) => fire(F.setDoc(pRef(id), d)),
+    updPlayer: (id,d) => fire(F.updateDoc(pRef(id), d)),
+    setCurrent: d => fire(F.setDoc(F.doc(db, "state", "current"), d)),
+    delPlayer: id => {
+      S.present.delete(id);
+      if (S.draft) { S.draft.A = S.draft.A.filter(x=>x!==id); S.draft.B = S.draft.B.filter(x=>x!==id); }
+      saveCurrent();
+      fire(F.deleteDoc(pRef(id)));
+    },
+    // Replaces all players and the current selection in one batch (used for backups and the device migration)
+    replaceAll: d => {
+      const b = F.writeBatch(db), incoming = d.players || {};
+      Object.keys(S.players).forEach(id => { if (!incoming[id]) b.delete(pRef(id)); });
+      Object.entries(incoming).forEach(([id, p]) => b.set(pRef(id), {name:String(p.name||id), pos:["G","D","O"].includes(p.pos)?p.pos:"O", rating:round2(clamp(+p.rating||5)), active:p.active!==false}));
+      const present = (d.present||[]).filter(id => incoming[id]);
+      const t = d.teams && Array.isArray(d.teams.A) ? {A:d.teams.A.filter(id=>incoming[id]), B:d.teams.B.filter(id=>incoming[id]), date:d.teams.date||today()} : null;
+      b.set(F.doc(db, "state", "current"), {present, teams:t, updatedAt:Date.now()});
+      fire(b.commit());
+    },
+  };
+}
+
+function saveCurrent(){ api.setCurrent({present:[...S.present], teams:S.draft, updatedAt:Date.now()}); }
+
+/* ---------- sign-in ---------- */
+async function finishEmailLink(email, link){
+  try {
+    await fb.A.signInWithEmailLink(fb.auth, email, link);
+    localStorage.removeItem(EMAIL_KEY);
+    history.replaceState(null, "", location.pathname + "#training");
+    $("#linkRow").hidden = true; $("#linkHint").hidden = true; status("");
+  } catch (e) {
+    status(e?.code==="auth/invalid-action-code" || e?.code==="auth/expired-action-code"
+      ? "Dieser Anmeldelink ist abgelaufen oder wurde schon benutzt. Bitte einen neuen anfordern."
+      : "Anmeldung fehlgeschlagen ("+(e?.code||"Fehler")+").", true);
+  }
+}
+async function signInGoogle(){
+  try { await fb.A.signInWithPopup(fb.auth, new fb.A.GoogleAuthProvider()); status(""); }
+  catch (e) {
+    if (e?.code === "auth/popup-closed-by-user" || e?.code === "auth/cancelled-popup-request") return;
+    status("Google-Anmeldung hat nicht geklappt ("+(e?.code||"Fehler")+"). Versuche den E-Mail-Link.", true);
+  }
+}
+async function sendLink(){
+  const email = $("#loginEmail").value.trim();
+  if (!/^\S+@\S+\.\S+$/.test(email)) { status("Bitte eine gültige E-Mail-Adresse eingeben.", true); return; }
+  try {
+    await fb.A.sendSignInLinkToEmail(fb.auth, email, {url: location.origin + location.pathname, handleCodeInApp: true});
+    try { localStorage.setItem(EMAIL_KEY, email); } catch {}
+    $("#linkRow").hidden = false; $("#linkHint").hidden = false;
+    status(`Anmeldelink an ${email} geschickt. Auch im Spam-Ordner nachsehen.`);
+  } catch (e) { status("Link konnte nicht gesendet werden ("+(e?.code||"Fehler")+").", true); }
 }
 
 /* ---------- teams ---------- */
@@ -244,14 +352,30 @@ function generate(){
 }
 
 /* ---------- rendering ---------- */
-function view(){ const h = location.hash.slice(1); return ["training","spieler"].includes(h) ? h : "training"; }
+function view(){
+  if (!S.authKnown) return "loading";
+  if (!S.user) return "login";
+  if (S.denied) return "denied";
+  const h = location.hash.slice(1); return ["training","spieler"].includes(h) ? h : "training";
+}
+
+function legacyData(){ try { const d = JSON.parse(localStorage.getItem(LEGACY_KEY)); return d && d.players && Object.keys(d.players).length ? d : null; } catch { return null; } }
 
 function render(){
   const v = view();
+  $("nav").hidden = !["training","spieler"].includes(v);
   document.querySelectorAll("nav a").forEach(a => { if (a.dataset.view===v) a.setAttribute("aria-current","page"); else a.removeAttribute("aria-current"); });
   document.querySelectorAll("[data-section]").forEach(s => s.hidden = s.dataset.section !== v);
+  if (v==="denied") $("#deniedEmail").textContent = S.user?.email || "";
   if (v==="training") { renderPresent(); renderDraft(); }
-  if (v==="spieler") { if ($("#playerTable").contains(document.activeElement)) pendingRender = true; else renderPlayers(); }
+  if (v==="spieler") {
+    $("#userEmail").textContent = S.user?.email || "";
+    $("#netState").textContent = navigator.onLine ? "" : "· offline – Änderungen werden übertragen, sobald wieder Netz da ist";
+    const legacy = legacyData(), mig = $("#btnMigrate");
+    mig.hidden = !(legacy && S.loaded && !Object.keys(S.players).length);
+    if (!mig.hidden && !mig.dataset.armed) mig.textContent = `${Object.keys(legacy.players).length} Spieler von diesem Gerät übernehmen`;
+    if ($("#playerTable").contains(document.activeElement)) pendingRender = true; else renderPlayers();
+  }
 }
 
 function renderPresent(){
@@ -325,9 +449,20 @@ document.addEventListener("click", async e => {
     else if (t.id==="btnAdd") {
       const name=$("#newName").value.trim(); if(!name){ status("Bitte einen Namen eingeben.", true); return; }
       let id=slug(name); while(S.players[id]) id+="-2";
-      await api.setPlayer(id,{name,pos:$("#newPos").value,rating:round2(clamp(+$("#newRating").value||5)),active:true});
+      api.setPlayer(id,{name,pos:$("#newPos").value,rating:round2(clamp(+$("#newRating").value||5)),active:true});
       $("#newName").value=""; status(`${name} angelegt.`);
     }
+    else if (t.id==="btnGoogle") signInGoogle();
+    else if (t.id==="btnSendLink") sendLink();
+    else if (t.id==="btnUseLink") {
+      const email = $("#loginEmail").value.trim() || localStorage.getItem(EMAIL_KEY) || "";
+      const link = $("#loginLink").value.trim();
+      if (!email) { status("Bitte zuerst die E-Mail-Adresse eingeben.", true); return; }
+      if (!fb.A.isSignInWithEmailLink(fb.auth, link)) { status("Das ist kein gültiger Anmeldelink. Bitte den ganzen Link aus der E-Mail einfügen.", true); return; }
+      finishEmailLink(email, link);
+    }
+    else if (t.id==="btnLogout" || t.id==="btnLogout2") confirmBtn(t, () => fb.A.signOut(fb.auth));
+    else if (t.id==="btnMigrate") confirmBtn(t, () => { const d = legacyData(); if (d) { api.replaceAll(d); status(`${Object.keys(d.players).length} Spieler übernommen.`); } });
     else if (t.dataset.del) confirmBtn(t, () => {
       const id = t.dataset.del, name = S.players[id]?.name || "Spieler";
       t.blur(); api.delPlayer(id); renderPlayers(); status(`${name} gelöscht.`);
@@ -342,12 +477,14 @@ document.addEventListener("change", async e => {
   else if (f==="active") v = el.checked;
   else if (f==="name") { v = el.value.trim(); if (!v) { el.value = S.players[id].name; return; } }
   else v = el.value;
-  try { await api.updPlayer(id, {[f]:v}); } catch(err) { status("Speichern fehlgeschlagen ("+(err?.code||"Fehler")+").", true); }
+  api.updPlayer(id, {[f]:v});
 });
+window.addEventListener("online", render);
+window.addEventListener("offline", render);
 document.addEventListener("focusout", () => setTimeout(()=>{ if (pendingRender && !$("#playerTable").contains(document.activeElement)) renderPlayers(); }, 0));
 window.addEventListener("hashchange", render);
 
-/* ---------- backup (offline version) ---------- */
+/* ---------- backup ---------- */
 let pendingImport = null;
 function confirmBtn(btn, fn){
   if (btn.dataset.armed) { delete btn.dataset.armed; btn.textContent = btn.dataset.label; fn(); return; }
