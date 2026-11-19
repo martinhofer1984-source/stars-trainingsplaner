@@ -149,6 +149,7 @@ body.ro .write{display:none!important}
 <style>
 .is-player .trainer-only{display:none!important}
 .no-kasse .kasse-only{display:none!important}
+body:not(.is-dev) .dev-only{display:none!important}
 .pres.due{color:var(--warn)}
 .charge{display:flex;align-items:center;gap:10px;padding:6px 0;border-bottom:1px solid var(--line)}
 .charge span{flex:1}
@@ -386,7 +387,7 @@ td input.email{width:220px}
     <div class="row"><button id="btnLogout">Abmelden</button></div>
   </section>
 
-  <section data-section="konto" class="panel trainer-only">
+  <section data-section="konto" class="panel dev-only">
     <h2>Datensicherung</h2>
     <p class="muted">Die Daten liegen in der Mannschafts-Datenbank. Eine Sicherung als Datei schützt zusätzlich vor versehentlichem Löschen. Beim Laden einer Sicherung werden die Spieler ersetzt, die Termine bleiben. Eine Termin-Datei legt dagegen nur neue künftige Termine an (schon vorhandene werden übersprungen) und kündigt sie mit einer einzigen Team-Info an.</p>
     <div class="row">
@@ -422,7 +423,9 @@ const slug = s => "p-" + (norm(s).replace(/ /g,"-") || Math.random().toString(36
 const today = () => new Date().toISOString().slice(0,10);
 const shuffle = a => { for (let i=a.length-1;i>0;i--){ const j=Math.floor(Math.random()*(i+1)); [a[i],a[j]]=[a[j],a[i]]; } return a; };
 const byName = (a,b) => a.name.localeCompare(b.name,"de");
-const isTrainer = () => S.role === "trainer";
+// Developers have all trainer rights plus the data backup
+const isTrainer = () => S.role === "trainer" || S.role === "developer";
+const isDev = () => S.role === "developer";
 const validEmail = s => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s);
 const WD = ["So","Mo","Di","Mi","Do","Fr","Sa"];
 const dDay = ms => { const d = new Date(ms); return `${WD[d.getDay()]} ${String(d.getDate()).padStart(2,"0")}.${String(d.getMonth()+1).padStart(2,"0")}.`; };
@@ -480,7 +483,7 @@ async function initStore(){
 function resetData(){
   S.denied=false; S.role=null; S.me=null; S.players={}; S.roster={}; S.trainings=[]; S.allTrainings=[]; S.past=[]; S.sel=null; S.drafts={}; S.members={}; S.news=[]; S.kasse=null; S.billing={}; S.fines=[];
   S.loaded={players:false, roster:false, trainings:false};
-  document.body.classList.remove("is-player", "no-kasse");
+  document.body.classList.remove("is-player", "no-kasse", "is-dev");
 }
 function stopRole(){ roleUnsubs.forEach(u=>u()); roleUnsubs=[]; }
 function stopAll(){ stopRole(); authUnsubs.forEach(u=>u()); authUnsubs=[]; }
@@ -496,9 +499,9 @@ function watchMember(){
   if (!email) { S.denied = true; return; }
   authUnsubs.push(F.onSnapshot(F.doc(db, "members", email), d => {
     if (!d.exists()) { S.denied = true; S.role = null; stopRole(); render(); return; }
-    const m = d.data(), role = m.role === "player" ? "player" : m.role === "cashier" ? "cashier" : "trainer";
+    const m = d.data(), role = ["player", "cashier", "developer"].includes(m.role) ? m.role : "trainer";
     S.me = {...m, email}; S.denied = false;
-    if (role !== S.role) { S.role = role; document.body.classList.toggle("is-player", role !== "trainer"); document.body.classList.toggle("no-kasse", role === "player"); watchData(); }
+    if (role !== S.role) { S.role = role; document.body.classList.toggle("is-player", !isTrainer()); document.body.classList.toggle("no-kasse", role === "player"); document.body.classList.toggle("is-dev", role === "developer"); watchData(); }
     render();
   }, dbFail));
 }
@@ -595,7 +598,7 @@ function syncRoster(){
 }
 
 // Addresses of other trainers: their members entry is managed in the Firebase console only
-const isOtherTrainer = email => !!email && email !== S.me?.email && !!S.members[email] && (S.members[email].role || "trainer") === "trainer";
+const isOtherTrainer = email => !!email && email !== S.me?.email && !!S.members[email] && ["trainer", "developer"].includes(S.members[email].role || "trainer");
 
 // Adds to a batch what it takes to move a player's access from one address to another.
 // Another trainer's entry is never touched (the rules forbid it); only the address on the player is kept.
@@ -699,7 +702,7 @@ const api = {
     fire(fb.F.addDoc(fb.F.collection(fb.db, "fines"), {pid, reason, amount, at: fb.F.Timestamp.now(), by}));
   },
   delFine(id){ fire(fb.F.deleteDoc(fb.F.doc(fb.db, "fines", id))); },
-  setTariffs(season, startAt, tf){ fire(fb.F.setDoc(fb.F.doc(fb.db, "kasse", "settings"), {startAt, seasons: {[season]: tf}}, {merge: true})); },
+  setTariffs(season, tf){ fire(fb.F.setDoc(fb.F.doc(fb.db, "kasse", "settings"), {seasons: {[season]: tf}}, {merge: true})); },
   setCashier(pid, email, on){ fire(fb.F.setDoc(mRef(email), {name: S.players[pid]?.name || "", role: on ? "cashier" : "player", playerId: pid})); },
   answer(t, pid, val){ fire(fb.F.updateDoc(tRef(t.id), new fb.F.FieldPath("responses", pid), val)); },
 };
@@ -1221,8 +1224,11 @@ const seasonOf = ms => { const d = new Date(ms); return d.getMonth() >= 8 ? d.ge
 const seasonLabel = y => `${y}/${String((y + 1) % 100).padStart(2, "0")}`;
 const TARIFF_DEFAULT = {annual: 200, training: 15, student: 10, noshow: 0};
 const PLANS = {training: "Pro Training", student: "Pro Training – Student", annual: "Jahresbeitrag", free: "Frei"};
-const isKasse = () => S.role === "trainer" || S.role === "cashier";
-const kasseStart = () => Number.isFinite(S.kasse?.startAt) ? S.kasse.startAt : null;
+const isKasse = () => isTrainer() || S.role === "cashier";
+// The cash box counts every appointment (old ones were deleted when it started); a stored start date still applies
+const kasseStart = () => Number.isFinite(S.kasse?.startAt) ? S.kasse.startAt : -Infinity;
+// Annual fee from the season of the first appointment (or the current season) on
+const firstSeason = () => Math.min(seasonOf(Date.now()), ...S.allTrainings.map(t => seasonOf(t.start)), ...(Number.isFinite(S.kasse?.startAt) ? [seasonOf(S.kasse.startAt)] : []));
 // Tariffs of a season: its own, else those of the latest earlier season, else the defaults
 function tariffOf(season){
   const all = S.kasse?.seasons || {};
@@ -1239,10 +1245,10 @@ const euro = n => (Math.round(n * 100) / 100).toLocaleString("de-DE", {style: "c
 // annual fee per season, training fee (per-training plans), extra costs of games (everybody who played),
 // penalty for not showing up despite a yes (everybody)
 function chargesOf(pid){
-  const from = kasseStart(); if (from === null) return [];
+  const from = kasseStart();
   const plan = planOf(pid), out = [];
   if (plan === "annual")
-    for (let y = seasonOf(from); y <= seasonOf(Date.now()); y++)
+    for (let y = Number.isFinite(from) ? seasonOf(from) : firstSeason(); y <= seasonOf(Date.now()); y++)
       out.push({key: "y:" + y, label: `Jahresbeitrag ${seasonLabel(y)}`, amount: tariffOf(y).annual, at: new Date(y, 8, 1).getTime()});
   for (const t of S.past) {
     if (t.cancelled || t.start < from) continue;
@@ -1268,11 +1274,9 @@ function renderKasse(){
   const people = Object.values(S.roster).map(r => ({...r, open: openOf(r.id)}))
     .filter(r => r.active || r.open > 0).sort(byName);
   const total = people.reduce((s, r) => s + r.open, 0);
-  $("#kasseSum").textContent = start === null ? "" : `offen gesamt ${euro(total)}`;
+  $("#kasseSum").textContent = `offen gesamt ${euro(total)}`;
   const shown = people.filter(r => !onlyOpen || r.open > 0 || r.id === S.openKasse);
-  $("#kasseList").innerHTML = start === null
-    ? `<div class="empty">Die Kasse ist noch nicht eingerichtet. Unten bei „Tarife“ das Startdatum und die Beträge festlegen und speichern. Vorher entstehen keine Posten.</div>`
-    : !shown.length ? `<div class="empty">${onlyOpen ? "Niemand hat einen offenen Betrag." : "Noch keine Spieler."}</div>`
+  $("#kasseList").innerHTML = !shown.length ? `<div class="empty">${onlyOpen ? "Niemand hat einen offenen Betrag." : "Noch keine Spieler."}</div>`
     : shown.map(r => {
       const open = S.openKasse === r.id, all = open ? chargesOf(r.id) : [];
       return `<div class="pitem">
@@ -1305,8 +1309,8 @@ function renderKasse(){
       </div><span class="muted">${paid ? "bezahlt" : "offen"}</span></div>`; }).join("");
 
   // Extra costs of games since the start of the cash box (newest first)
-  const games = S.allTrainings.filter(t => isGame(t) && !t.cancelled && (start === null || t.start >= start)).sort((a, b) => b.start - a.start).slice(0, 30);
-  $("#gameCosts").innerHTML = !games.length ? `<div class="empty">Keine Spiele${start === null ? "" : " seit Start der Kasse"}.</div>`
+  const games = S.allTrainings.filter(t => isGame(t) && !t.cancelled && t.start >= start).sort((a, b) => b.start - a.start).slice(0, 30);
+  $("#gameCosts").innerHTML = !games.length ? `<div class="empty">Keine Spiele${""}.</div>`
     : games.map(t => `<div class="pitem"><div class="phead">
         <div class="pinfo"><b>Spiel ${dDay(t.start)}</b><span>${tRange(t)} Uhr${t.place ? " · " + esc(t.place) : ""}${t.start > Date.now() ? " · kommt noch" : ""}</span></div>
         <label class="inline">€ pro Spieler <input type="number" min="0" max="1000" step="0.5" data-gcost="${esc(t.id)}" value="${gameCost(t) || ""}" placeholder="0" style="width:80px"></label>
@@ -1316,23 +1320,21 @@ function renderKasse(){
   const sel = $("#tariffSeason"), cur = seasonOf(Date.now());
   if (!sel.options.length) sel.innerHTML = [cur, cur + 1].map(y => `<option value="${y}">Saison ${seasonLabel(y)}</option>`).join("");
   const y = +sel.value || cur, tf = tariffOf(y), own = !!S.kasse?.seasons?.[y];
-  const startVal = new Date((start ?? Date.now()) - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 10);
   $("#tariffBox").innerHTML = `
     ${own ? "" : `<p class="note">Für ${seasonLabel(y)} sind noch keine eigenen Beträge gespeichert – angezeigt werden die ${y === cur ? "Standardwerte" : "Beträge der Vorsaison"}.</p>`}
     <div class="form">
-      <label for="tfStart">Kasse rechnet ab<input id="tfStart" type="date" value="${startVal}"></label>
       <label for="tfAnnual">Jahresbeitrag (€)<input id="tfAnnual" type="number" min="0" step="1" value="${tf.annual}"></label>
       <label for="tfTraining">Training normal (€)<input id="tfTraining" type="number" min="0" step="0.5" value="${tf.training}"></label>
       <label for="tfStudent">Training Student (€)<input id="tfStudent" type="number" min="0" step="0.5" value="${tf.student}"></label>
       <label for="tfNoshow">Strafe „nicht erschienen“ (€)<input id="tfNoshow" type="number" min="0" step="0.5" value="${tf.noshow}"></label>
     </div>
     <div class="row" style="margin-top:10px"><button class="primary" id="btnTariffs">Speichern</button></div>
-    <p class="muted">Posten entstehen nur für Termine ab diesem Datum – frühere Spesen gelten als beglichen. Die Saison beginnt am 1. September; für eine neue Saison einfach die Beträge der nächsten Saison speichern.</p>`;
+    <p class="muted">Die Saison beginnt am 1. September; für eine neue Saison einfach die Beträge der nächsten Saison speichern.</p>`;
 }
 
 function renderMyFees(){
   const pid = S.me?.playerId, box = $("#myFees"), panel = $("#myFeesPanel");
-  panel.hidden = !pid || !S.roster[pid] || kasseStart() === null;
+  panel.hidden = !pid || !S.roster[pid];
   if (panel.hidden) return;
   const open = openCharges(pid), sum = open.reduce((s, c) => s + c.amount, 0), plan = planOf(pid);
   box.innerHTML = `<p>Beitragsart: <b>${PLANS[plan]}</b></p>
@@ -1504,7 +1506,7 @@ function renderKonto(){
   $("#userEmail").textContent = S.user?.email || "";
   $("#netState").textContent = navigator.onLine ? "" : "· offline – Änderungen werden übertragen, sobald wieder Netz da ist";
   const my = S.me?.playerId && (S.roster[S.me.playerId]?.name);
-  $("#roleInfo").textContent = (isTrainer() ? "Rolle: Trainer" : S.role === "cashier" ? "Rolle: Kassier" : "Rolle: Mitspieler") + (my ? ` · Spieler: ${my}` : "");
+  $("#roleInfo").textContent = (isDev() ? "Rolle: Entwickler" : isTrainer() ? "Rolle: Trainer" : S.role === "cashier" ? "Rolle: Kassier" : "Rolle: Mitspieler") + (my ? ` · Spieler: ${my}` : "");
 }
 
 function teamsText(t, tm){
@@ -1600,8 +1602,8 @@ document.addEventListener("click", e => {
     else if (t.dataset.payall) { const pid = t.dataset.payall; api.setPaid(pid, openCharges(pid).map(c => c.key), true); status(`${S.roster[pid]?.name || "Spieler"}: alles bezahlt.`); }
     else if (t.id==="btnExpStats") { const rg = $("#statRange").value; downloadCsv(`stars-statistik-${RANGE_NAME[rg] || rg}`, statsRows(rg)); }
     else if (t.id==="btnExpResults") downloadCsv("stars-ergebnisse", resultRows());
-    else if (t.id==="btnExpKasse") { if (kasseStart() === null) { status("Die Kasse ist noch nicht eingerichtet.", true); return; } downloadCsv("stars-kasse-uebersicht", kasseRows()); }
-    else if (t.id==="btnExpPosten") { if (kasseStart() === null) { status("Die Kasse ist noch nicht eingerichtet.", true); return; } downloadCsv("stars-kasse-posten", postenRows()); }
+    else if (t.id==="btnExpKasse") downloadCsv("stars-kasse-uebersicht", kasseRows());
+    else if (t.id==="btnExpPosten") downloadCsv("stars-kasse-posten", postenRows());
     else if (t.id==="btnFine") {
       const pid = $("#fnPlayer").value, reason = $("#fnReason").value.trim().slice(0, 200), amount = Math.round(Number($("#fnAmount").value) * 100) / 100;
       if (!pid) { status("Bitte einen Spieler wählen.", true); return; }
@@ -1615,9 +1617,7 @@ document.addEventListener("click", e => {
     else if (t.id==="btnTariffs") {
       const num = id => Number($(id).value), vals = {annual: num("#tfAnnual"), training: num("#tfTraining"), student: num("#tfStudent"), noshow: num("#tfNoshow")};
       if (Object.values(vals).some(v => !Number.isFinite(v) || v < 0 || v > 10000) || $("#tfAnnual").value === "") { status("Bitte alle Beträge als Zahl ab 0 eingeben.", true); return; }
-      const d = $("#tfStart").value; if (!d) { status("Bitte das Startdatum der Kasse wählen.", true); return; }
-      const [yy, mm, dd] = d.split("-").map(Number);
-      api.setTariffs(+$("#tariffSeason").value, new Date(yy, mm - 1, dd).getTime(), vals);
+      api.setTariffs(+$("#tariffSeason").value, vals);
       status("Tarife gespeichert.");
     }
     else if (t.id==="btnPushOn") enablePush();

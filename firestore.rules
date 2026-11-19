@@ -26,10 +26,11 @@ service cloud.firestore {
     function me() { return get(myDoc()).data; }
     // A single document lookup per check: Firestore limits lookups per request, and trainers
     // write several documents in one batch. get() on a missing document denies the request.
-    function isTrainer() { return signedIn() && me().get('role', 'trainer') == 'trainer'; }
+    // Developers (role "developer") have all trainer rights; the data backup is only shown to them in the app
+    function isTrainer() { return signedIn() && me().get('role', 'trainer') in ['trainer', 'developer']; }
     function myPlayerId() { return me().get('playerId', ''); }
     // Trainers and the cashier manage the cash box
-    function isKasse() { return signedIn() && me().get('role', 'trainer') in ['trainer', 'cashier']; }
+    function isKasse() { return signedIn() && me().get('role', 'trainer') in ['trainer', 'developer', 'cashier']; }
 
     // Optional jersey number 0-99
     function validNumber(d) {
