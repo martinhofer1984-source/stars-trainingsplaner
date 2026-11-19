@@ -388,10 +388,10 @@ td input.email{width:220px}
 
   <section data-section="konto" class="panel trainer-only">
     <h2>Datensicherung</h2>
-    <p class="muted">Die Daten liegen in der Mannschafts-Datenbank. Eine Sicherung als Datei schützt zusätzlich vor versehentlichem Löschen. Beim Laden einer Sicherung werden die Spieler ersetzt, die Termine bleiben.</p>
+    <p class="muted">Die Daten liegen in der Mannschafts-Datenbank. Eine Sicherung als Datei schützt zusätzlich vor versehentlichem Löschen. Beim Laden einer Sicherung werden die Spieler ersetzt, die Termine bleiben. Eine Termin-Datei legt dagegen nur neue künftige Termine an (schon vorhandene werden übersprungen) und kündigt sie mit einer einzigen Team-Info an.</p>
     <div class="row">
       <button id="btnExport" class="primary">Daten sichern (.json)</button>
-      <label class="btn" for="importFile">Sicherung auswählen …</label>
+      <label class="btn" for="importFile">Sicherung oder Termine laden …</label>
       <input type="file" id="importFile" accept=".json,application/json" hidden>
       <button id="btnImportConfirm" class="danger" hidden></button>
     </div>
@@ -662,9 +662,10 @@ const api = {
     }
     fire(b.commit());
   },
-  addTraining(startMs, place, kind, duration){
+  // bulk: created by an import, announced by one message instead of a push per appointment
+  addTraining(startMs, place, kind, duration, bulk){
     fire(fb.F.addDoc(fb.F.collection(fb.db, "trainings"),
-      {start: fb.F.Timestamp.fromMillis(startMs), place, kind, duration, note:"", cancelled:false, responses:{}, teams:null, createdAt:Date.now()}));
+      {start: fb.F.Timestamp.fromMillis(startMs), place, kind, duration, note:"", cancelled:false, responses:{}, teams:null, createdAt:Date.now(), ...(bulk ? {bulk:true} : {})}));
   },
   updTraining(id, patch){ fire(fb.F.updateDoc(tRef(id), patch)); },
   delTraining(id){ const b = batcher(); b.delete(tRef(id)); b.delete(dRef(id)); fire(b.commit()); },
@@ -1710,15 +1711,42 @@ document.getElementById("importFile").addEventListener("change", async e => {
   const f = e.target.files[0]; e.target.value = ""; if (!f) return;
   try {
     const d = JSON.parse(await f.text());
+    const b = document.getElementById("btnImportConfirm");
+    // A list of appointments (no players): adds the future ones that do not exist yet
+    if (d && d.kind === "termine" && Array.isArray(d.trainings)) {
+      const list = termineToAdd(d.trainings);
+      if (!list.length) { status("Alle Termine aus der Datei sind schon eingetragen oder liegen in der Vergangenheit."); return; }
+      pendingImport = {termine: list};
+      b.textContent = `Termine anlegen: ${list.length} (${dDay(list[0].start)} bis ${dDay(list[list.length - 1].start)})`;
+      b.hidden = false; return;
+    }
     if (!d || typeof d.players !== "object" || Array.isArray(d.players)) throw new Error("format");
     pendingImport = d;
-    const b = document.getElementById("btnImportConfirm");
     b.textContent = `Sicherung laden: ${Object.keys(d.players).length} Spieler – ersetzt die aktuellen Spieler`;
     b.hidden = false;
   } catch { status("Diese Datei ist keine gültige Sicherung des Trainingsplaners.", true); }
 });
+// Valid future appointments from an import file, without those already in the plan (same start and kind)
+function termineToAdd(raw){
+  const now = Date.now();
+  return raw.map(x => ({start: new Date(x.start).getTime(), kind: x.kind === "game" ? "game" : "training",
+      place: String(x.place || "").slice(0, 80), duration: Math.min(600, Math.max(15, Math.round(+x.duration || 60)))}))
+    .filter(x => Number.isFinite(x.start) && x.start > now
+      && !S.allTrainings.some(t => t.start === x.start && (t.kind === "game" ? "game" : "training") === x.kind))
+    .sort((a, b) => a.start - b.start);
+}
 document.getElementById("btnImportConfirm").addEventListener("click", e => {
   const b = e.currentTarget;
+  if (pendingImport?.termine) {
+    const list = pendingImport.termine;
+    return confirmBtn(b, () => {
+      // Created quietly; one Team-Info message (and push) announces them all
+      list.forEach(x => api.addTraining(x.start, x.place, x.kind, x.duration, true));
+      const nG = list.filter(x => x.kind === "game").length, nT = list.length - nG;
+      api.addNews(`${list.length} neue Termine`, `Eingetragen bis ${dDay(list[list.length - 1].start)}: ${nT} ${nT === 1 ? "Training" : "Trainings"}${nG ? `, ${nG} ${nG === 1 ? "Spiel" : "Spiele"}` : ""}. Du bist automatisch dabei – wer nicht kann, sagt bis 24 Stunden vorher ab.`);
+      pendingImport = null; b.hidden = true; status(`${list.length} Termine angelegt.`);
+    });
+  }
   confirmBtn(b, () => { api.replacePlayers(pendingImport.players); pendingImport = null; b.hidden = true; status("Sicherung geladen."); });
 });
 

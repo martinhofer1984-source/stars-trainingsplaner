@@ -58,7 +58,7 @@ exports.onNews = onDocumentCreated("news/{id}", async event => {
 });
 
 exports.onTrainingCreated = onDocumentCreated("trainings/{id}", async event => {
-  const t = event.data?.data(); if (!t || t.cancelled || ms(t.start) < Date.now()) return;
+  const t = event.data?.data(); if (!t || t.cancelled || t.bulk || ms(t.start) < Date.now()) return;   // bulk: announced by one message from the import
   await post(`Neuer Termin: ${kindOf(t)}`, `${when(t)}. Du bist automatisch dabei – absagen bis 24 Stunden vorher.`, "#training", "t-" + event.params.id, event.params.id);
 });
 
