@@ -105,6 +105,7 @@ body.ro .write{display:none!important}
   <nav aria-label="Bereiche">
     <a href="#training" data-view="training">Termine</a>
     <a href="#spieler" data-view="spieler" class="trainer-only">Spieler</a>
+    <a href="#statistik" data-view="statistik" class="trainer-only">Statistik</a>
     <a href="#konto" data-view="konto">Konto</a>
   </nav>
 </div></header>
@@ -236,6 +237,25 @@ td input.email{width:220px}
     <p class="muted">Stärke 1–10, nur für Trainer sichtbar. <b>Zugang:</b> Trägst du eine E-Mail-Adresse ein, kann sich der Spieler damit anmelden, Termine sehen und absagen. Ohne Adresse ist er Gast. Inaktive Spieler verschwinden aus den Terminen, „Löschen“ entfernt sie endgültig.</p>
   </section>
 
+  <section data-section="statistik" class="panel">
+    <h2>Statistik <small id="statInfo"></small></h2>
+    <div class="row">
+      <label class="inline" for="statRange">Zeitraum
+        <select id="statRange">
+          <option value="season" selected>Diese Saison (ab 1. September)</option>
+          <option value="year">Dieses Kalenderjahr</option>
+          <option value="all">Alle</option>
+        </select></label>
+    </div>
+    <p class="muted">Gezählt werden vergangene Termine, die nicht ausgefallen sind. Spieler mit Zugang gelten als dabei, wenn sie nicht abgesagt haben. Nur für Trainer sichtbar.</p>
+    <div class="tablewrap" id="statTable"></div>
+  </section>
+
+  <section data-section="statistik" class="panel">
+    <h2>Vergangene Termine <small id="pastCount"></small></h2>
+    <div class="tablewrap" id="pastTable"></div>
+  </section>
+
   <section data-section="konto" class="panel">
     <h2>Konto</h2>
     <p>Angemeldet als <b id="userEmail"></b> <span id="netState" class="muted"></span></p>
@@ -265,8 +285,8 @@ const POS = {G:"Tor", D:"Verteidigung", O:"Sturm"};
 const POS_SHORT = {G:"T", D:"V", O:"S"};
 const SCALE = 4;                 // 4 points of average difference = 10:1 expected odds
 const DEADLINE_MS = 24*3600e3;   // players can answer up to 24 h before the start (enforced in firestore.rules)
-const S = {user:null, authKnown:false, denied:false, role:null, me:null, players:{}, roster:{}, trainings:[], sel:null, drafts:{},
-           loaded:{players:false, roster:false, trainings:false}, sort:{key:"name",dir:1}};
+const S = {user:null, authKnown:false, denied:false, role:null, me:null, players:{}, roster:{}, trainings:[], allTrainings:[], past:[], sel:null, drafts:{},
+           loaded:{players:false, roster:false, trainings:false}, sort:{key:"name",dir:1}, statSort:{key:"rate",dir:-1}};
 let pendingRender = false;
 
 const $ = s => document.querySelector(s);
@@ -335,7 +355,7 @@ async function initStore(){
 }
 
 function resetData(){
-  S.denied=false; S.role=null; S.me=null; S.players={}; S.roster={}; S.trainings=[]; S.sel=null; S.drafts={};
+  S.denied=false; S.role=null; S.me=null; S.players={}; S.roster={}; S.trainings=[]; S.allTrainings=[]; S.past=[]; S.sel=null; S.drafts={};
   S.loaded={players:false, roster:false, trainings:false};
   document.body.classList.remove("is-player");
 }
@@ -369,10 +389,13 @@ function watchData(){
     S.roster = {}; s.forEach(d => S.roster[d.id] = {id:d.id, ...d.data()});
     S.loaded.roster = true; syncRoster(); render();
   }, dbFail));
+  // Trainers load all appointments (past ones feed the statistics), players only the current ones
   const since = F.Timestamp.fromMillis(Date.now() - 6*3600e3);
-  roleUnsubs.push(F.onSnapshot(F.query(F.collection(db, "trainings"), F.where("start", ">=", since), F.orderBy("start")), s => {
-    S.trainings = s.docs.map(d => { const v = d.data(); return {id:d.id, ...v, start: v.start?.toMillis?.() ?? 0, responses: v.responses || {}}; });
-    if (!S.trainings.some(t => t.id === S.sel)) S.sel = (S.trainings.find(t => !t.cancelled) || S.trainings[0] || {}).id || null;
+  const tq = isTrainer() ? F.query(F.collection(db, "trainings"), F.orderBy("start"))
+                         : F.query(F.collection(db, "trainings"), F.where("start", ">=", since), F.orderBy("start"));
+  roleUnsubs.push(F.onSnapshot(tq, s => {
+    S.allTrainings = s.docs.map(d => { const v = d.data(); return {id:d.id, ...v, start: v.start?.toMillis?.() ?? 0, responses: v.responses || {}}; });
+    splitTrainings();
     S.loaded.trainings = true; clearTimeout(timer); status(""); render();
   }, dbFail));
   // Team drafts stay with the trainers until they are published into the training
@@ -542,6 +565,15 @@ const attendees = t => listed(t).filter(r => answerOf(t, r.id) === "in").sort(by
 const absentees = t => listed(t).filter(r => r.access && answerOf(t, r.id) === "out").sort(byName);
 const deadlineOf = t => t.start - DEADLINE_MS;
 const selTraining = () => S.trainings.find(t => t.id === S.sel) || null;
+// An appointment leaves the list when it is over; without a duration after 2 hours
+const OVER_FALLBACK_MS = 2*3600e3;
+const isOver = (t, now = Date.now()) => (endOf(t) ?? t.start + OVER_FALLBACK_MS) <= now;
+function splitTrainings(){
+  const now = Date.now();
+  S.trainings = S.allTrainings.filter(t => !isOver(t, now));
+  S.past = S.allTrainings.filter(t => isOver(t, now)).reverse();
+  if (!S.trainings.some(t => t.id === S.sel)) S.sel = (S.trainings.find(t => !t.cancelled) || S.trainings[0] || {}).id || null;
+}
 // Kind of appointment; older entries without a kind are trainings
 const isGame = t => t?.kind === "game";
 const kindOf = t => isGame(t) ? "Spiel" : "Training";
@@ -578,18 +610,20 @@ function view(){
   if (!S.role) return "loading";
   const h = location.hash.slice(1);
   if (h === "spieler" && isTrainer()) return "spieler";
+  if (h === "statistik" && isTrainer()) return "statistik";
   if (h === "konto") return "konto";
   return "training";
 }
 
 function render(){
   const v = view();
-  $("nav").hidden = !["training","spieler","konto"].includes(v);
+  $("nav").hidden = !["training","spieler","statistik","konto"].includes(v);
   document.querySelectorAll("nav a").forEach(a => { if (a.dataset.view===v) a.setAttribute("aria-current","page"); else a.removeAttribute("aria-current"); });
   document.querySelectorAll("[data-section]").forEach(s => s.hidden = s.dataset.section !== v);
   if (v==="denied") $("#deniedEmail").textContent = S.user?.email || "";
   if (v==="training") { renderTrainings(); renderDetail(); if (isTrainer()) renderPresent(); renderTeams(); renderLines(); }
   if (v==="spieler") { if ($("#playerTable").contains(document.activeElement)) pendingRender = true; else renderPlayers(); }
+  if (v==="statistik") renderStats();
   if (v==="konto") renderKonto();
 }
 
@@ -816,6 +850,50 @@ function renderPlayers(){
   }</tbody></table>`;
 }
 
+/* ---------- statistics (trainers) ---------- */
+function statFrom(range, now = new Date()){
+  if (range === "all") return -Infinity;
+  if (range === "year") return new Date(now.getFullYear(), 0, 1).getTime();
+  const y = now.getMonth() >= 8 ? now.getFullYear() : now.getFullYear() - 1;   // season starts 1 September
+  return new Date(y, 8, 1).getTime();
+}
+
+// Per player: appointments attended out of those held, split by trainings and games
+function computeStats(past, from){
+  const held = past.filter(t => !t.cancelled && t.start >= from);
+  const nT = held.filter(t => !isGame(t)).length, nG = held.filter(isGame).length;
+  const rows = Object.values(S.roster).map(r => {
+    let tr = 0, gm = 0;
+    for (const t of held) if (answerOf(t, r.id) === "in") { if (isGame(t)) gm++; else tr++; }
+    const all = nT + nG;
+    return {id:r.id, name:r.name, pos:r.pos, active:r.active, tr, gm, rate: all ? (tr + gm) / all : 0};
+  }).filter(x => x.active || x.tr + x.gm > 0);
+  return {held, nT, nG, rows};
+}
+
+function renderStats(){
+  const st = computeStats(S.past, statFrom($("#statRange").value));
+  $("#statInfo").textContent = `${st.nT} ${st.nT===1 ? "Training" : "Trainings"} · ${st.nG} ${st.nG===1 ? "Spiel" : "Spiele"}`;
+  if (!S.loaded.trainings) { $("#statTable").innerHTML = `<div class="empty">Termine werden geladen …</div>`; }
+  else if (!st.held.length) { $("#statTable").innerHTML = `<div class="empty">Im gewählten Zeitraum hat noch kein Termin stattgefunden.</div>`; }
+  else {
+    const {key, dir} = S.statSort;
+    const val = x => key === "name" ? x.name : key === "pos" ? "GDO".indexOf(x.pos) : x[key];
+    const rows = st.rows.slice().sort((a,b) => (key === "name" ? byName(a,b) : (val(a) - val(b))) * dir || byName(a,b));
+    const th = (k,l,c="") => `<th class="${c}" data-ssort="${k}" aria-sort="${key===k?(dir>0?"ascending":"descending"):"none"}">${l}${key===k?(dir>0?" ▲":" ▼"):""}</th>`;
+    const pct = x => Math.round(x * 100) + " %";
+    $("#statTable").innerHTML = `<table><thead><tr>${th("name","Name")}${th("pos","Position")}${th("tr",`Trainings (${st.nT})`,"num")}${th("gm",`Spiele (${st.nG})`,"num")}${th("rate","Quote","num")}</tr></thead><tbody>${
+      rows.map(x => `<tr class="${x.active ? "" : "inactive"}"><td>${esc(x.name)}</td><td>${POS[x.pos]||""}</td><td class="num">${x.tr}</td><td class="num">${x.gm}</td><td class="num"><b>${pct(x.rate)}</b></td></tr>`).join("")
+    }</tbody></table>`;
+  }
+  const past = S.past.filter(t => t.start >= statFrom($("#statRange").value));
+  $("#pastCount").textContent = past.length ? String(past.length) : "";
+  $("#pastTable").innerHTML = !past.length ? `<div class="empty">Keine vergangenen Termine im gewählten Zeitraum.</div>`
+    : `<table><thead><tr><th>Datum</th><th>Art</th><th>Zeit</th><th>Ort</th><th class="num">Dabei</th></tr></thead><tbody>${
+      past.map(t => `<tr class="${t.cancelled ? "inactive" : ""}"><td>${dDay(t.start)}${new Date(t.start).getFullYear() !== new Date().getFullYear() ? new Date(t.start).getFullYear() : ""}</td><td>${kindOf(t)}</td><td>${tRange(t)}</td><td>${esc(t.place||"")}</td><td class="num">${t.cancelled ? "fiel aus" : attendees(t).length}</td></tr>`).join("")
+    }</tbody></table>`;
+}
+
 function renderKonto(){
   $("#userEmail").textContent = S.user?.email || "";
   $("#netState").textContent = navigator.onLine ? "" : "· offline – Änderungen werden übertragen, sobald wieder Netz da ist";
@@ -840,7 +918,7 @@ function confirmBtn(btn, fn){
 
 /* ---------- events ---------- */
 document.addEventListener("click", e => {
-  const t = e.target.closest("button, th[data-sort]"); if (!t) return;
+  const t = e.target.closest("button, th[data-sort], th[data-ssort]"); if (!t) return;
   const tr = selTraining();
   try {
     if (t.dataset.sel) { S.sel = t.dataset.sel; render(); $("#detailPanel").scrollIntoView({behavior:"smooth", block:"start"}); }
@@ -887,6 +965,7 @@ document.addEventListener("click", e => {
       const id = t.dataset.del, name = S.players[id]?.name || "Spieler";
       t.blur(); api.delPlayer(id); status(`${name} gelöscht.`);
     });
+    else if (t.dataset.ssort) { const k=t.dataset.ssort; S.statSort = {key:k, dir: S.statSort.key===k ? -S.statSort.dir : (k==="name"||k==="pos" ? 1 : -1)}; renderStats(); }
     else if (t.dataset.sort) { const k=t.dataset.sort; S.sort = {key:k, dir: S.sort.key===k ? -S.sort.dir : 1}; renderPlayers(); }
     else if (t.id==="btnGoogle") signInGoogle();
     else if (t.id==="btnSendLink") sendLink();
@@ -902,6 +981,7 @@ document.addEventListener("click", e => {
 });
 document.addEventListener("change", e => {
   const el = e.target;
+  if (el.id === "statRange") { renderStats(); return; }
   const tg = selTraining();
   if (el.dataset.slot && tg && draftLines(tg)) {
     const ln = cleanLines(tg, draftLines(tg));
@@ -925,7 +1005,7 @@ window.addEventListener("hashchange", render);
 window.addEventListener("online", render);
 window.addEventListener("offline", render);
 // Re-evaluate deadlines now and then while the app stays open
-setInterval(() => { if (view()==="training") render(); }, 60000);
+setInterval(() => { splitTrainings(); if (view()==="training" || view()==="statistik") render(); }, 60000);
 
 /* ---------- backup ---------- */
 let pendingImport = null;
