@@ -205,8 +205,16 @@ td input.email{width:220px}
     <h2>Linien</h2>
     <div class="row trainer-only">
       <button id="btnLinesSuggest" class="primary">Vorschlag erstellen</button>
-      <label class="inline" for="lineCount">Linien
-        <select id="lineCount">
+      <label class="inline" for="lineD">Verteidigung
+        <select id="lineD">
+          <option value="1">1</option>
+          <option value="2" selected>2</option>
+          <option value="3">3</option>
+          <option value="4">4</option>
+        </select></label>
+      <label class="inline" for="lineO">Sturm
+        <select id="lineO">
+          <option value="1">1</option>
           <option value="2">2</option>
           <option value="3" selected>3</option>
           <option value="4">4</option>
@@ -482,8 +490,8 @@ const api = {
   setDraft(tid, tm){ fire(fb.F.setDoc(dRef(tid), {A:tm.A, B:tm.B, at:Date.now()})); },
   publish(t, tm){ api.updTraining(t.id, {teams: {A:tm.A, B:tm.B, at:Date.now()}}); },
   unpublish(t){ api.updTraining(t.id, {teams: null}); },
-  setLines(tid, ln){ fire(fb.F.setDoc(dRef(tid), {lines:{n:ln.n, slot:ln.slot}, at:Date.now()})); },
-  publishLines(t, ln){ api.updTraining(t.id, {lines: {n:ln.n, slot:ln.slot, at:Date.now()}}); },
+  setLines(tid, ln){ fire(fb.F.setDoc(dRef(tid), {lines:{d:ln.d, o:ln.o, slot:ln.slot}, at:Date.now()})); },
+  publishLines(t, ln){ api.updTraining(t.id, {lines: {d:ln.d, o:ln.o, slot:ln.slot, at:Date.now()}}); },
   unpublishLines(t){ api.updTraining(t.id, {lines: null}); },
   answer(t, pid, val){ fire(fb.F.updateDoc(tRef(t.id), new fb.F.FieldPath("responses", pid), val)); },
 };
@@ -692,48 +700,48 @@ function renderTeams(){
 }
 
 /* ---------- lines (games) ---------- */
-// Lines: {n: number of lines, slot: {playerId: "G" for the goal or "1".."4"}}
-const isLines = x => !!x && Number.isInteger(x.n) && !!x.slot && typeof x.slot === "object";
+// Lines: {d: defence lines, o: forward lines, slot: {playerId: "G" | "V1".."V4" | "S1".."S4"}}
+const isLines = x => !!x && Number.isInteger(x.d) && Number.isInteger(x.o) && !!x.slot && typeof x.slot === "object";
 const publishedLines = t => isLines(t.lines) ? t.lines : null;
 const draftLines = t => isLines(S.drafts[t.id]?.lines) ? S.drafts[t.id].lines : publishedLines(t);
-const sameLines = (x, y) => isLines(x) && isLines(y) && x.n === y.n
+const sameLines = (x, y) => isLines(x) && isLines(y) && x.d === y.d && x.o === y.o
   && JSON.stringify(Object.entries(x.slot).sort()) === JSON.stringify(Object.entries(y.slot).sort());
 const person = id => ({...(S.roster[id]||{}), ...(S.players[id]||{}), id});
-const slotName = k => k === "G" ? "Tor" : `Linie ${k}`;
-const slotKeys = n => ["G", ...Array.from({length:n}, (_, i) => String(i+1))];
+const range = n => Array.from({length:n}, (_, i) => i + 1);
+const slotKeys = ln => ["G", ...range(ln.d).map(i => "V"+i), ...range(ln.o).map(i => "S"+i)];
+const slotName = k => k === "G" ? "Tor" : (k[0] === "V" ? "Verteidigung " : "Sturm ") + k.slice(1);
+const slotShort = k => k === "G" ? "Tor" : k;
 
-// Goalies in goal; defenders and forwards by strength, the strongest in line 1
-function suggestLines(t, n){
+// Goalies in goal; defenders and forwards by strength into their lines, the strongest in line 1
+function suggestLines(t, d, o){
   const ps = attendees(t).map(r => person(r.id)).filter(p => p.name);
   const slot = {};
   ps.filter(p => p.pos === "G").forEach(p => slot[p.id] = "G");
-  for (const k of ["D","O"]) {
+  for (const [k, n, pre] of [["D", d, "V"], ["O", o, "S"]]) {
     const g = ps.filter(p => p.pos === k).sort((a,b) => (+b.rating||5) - (+a.rating||5) || byName(a,b));
-    g.forEach((p, i) => slot[p.id] = String(Math.floor(i * n / g.length) + 1));
+    g.forEach((p, i) => slot[p.id] = pre + (Math.floor(i * n / g.length) + 1));
   }
-  return {n, slot};
+  return {d, o, slot};
 }
 
-function lineHTML(key, ids, ln, edit, off){
+function lineHTML(key, ids, ln, edit){
   const order = {G:0,D:1,O:2};
   const people = ids.map(person).filter(p => p.name).sort((x,y)=>order[x.pos]-order[y.pos]||byName(x,y));
-  const cnt = k => people.filter(p=>p.pos===k).length;
-  const head = key === "G" || off ? `${people.length}`
-    : `V ${cnt("D")} · S ${cnt("O")}${isTrainer() && people.length ? " · Ø "+fmt(mean(people)) : ""}`;
-  const opts = id => [...slotKeys(ln.n), ""].map(k =>
-    `<option value="${k}" ${(ln.slot[id]||"")===k ? "selected" : ""}>${k ? (k==="G" ? "Tor" : "L"+k) : "–"}</option>`).join("");
-  return `<div class="team l${off ? " off" : ""}"><h3>${off ? "Nicht eingeteilt" : slotName(key)}<span>${head}</span></h3>${
+  const head = `${people.length}${isTrainer() && people.length && key && key !== "G" ? " · Ø "+fmt(mean(people)) : ""}`;
+  const opts = id => [...slotKeys(ln), ""].map(k =>
+    `<option value="${k}" ${(ln.slot[id]||"")===k ? "selected" : ""}>${k ? slotShort(k) : "–"}</option>`).join("");
+  return `<div class="team l${key ? "" : " off"}"><h3>${key ? slotName(key) : "Nicht eingeteilt"}<span>${head}</span></h3>${
     people.map(p=>`<div class="tp"><span class="pos">${POS_SHORT[p.pos]||"S"}</span><span>${esc(p.name)}</span><span class="q">${isTrainer() ? fmt(+p.rating||5) : ""}</span>${
       edit ? `<select data-slot="${esc(p.id)}" aria-label="${esc(p.name)} einteilen">${opts(p.id)}</select>` : "<span></span>"}</div>`).join("") || `<span class="muted">–</span>`
   }</div>`;
 }
 
 function linesBody(ln, ids, edit){
-  const keys = slotKeys(ln.n);
+  const keys = slotKeys(ln);
   const by = k => ids.filter(id => ln.slot[id] === k);
   const rest = ids.filter(id => !keys.includes(ln.slot[id]));
-  return `<div class="lines">${keys.map(k => lineHTML(k, by(k), ln, edit, false)).join("")}${
-    edit && rest.length ? lineHTML("", rest, ln, edit, true) : ""}</div>`;
+  return `<div class="lines">${keys.map(k => lineHTML(k, by(k), ln, edit)).join("")}${
+    edit && rest.length ? lineHTML("", rest, ln, edit) : ""}</div>`;
 }
 
 function renderLines(){
@@ -748,10 +756,10 @@ function renderLines(){
   }
   const ln = draftLines(t), pub = publishedLines(t);
   if (!ln) {
-    box.innerHTML = `<p class="muted">Wenn die Zusagen stehen, „Vorschlag erstellen“ wählen: Torhüter ins Tor, Verteidiger und Stürmer nach Stärke auf die Linien, die stärksten in Linie 1. Danach jeden Spieler über die Auswahl neben dem Namen umsetzen. Mitspieler sehen die Linien erst nach der Freigabe, und nie die Stärken.</p>`;
+    box.innerHTML = `<p class="muted">Wenn die Zusagen stehen, Anzahl der Verteidigungs- und Sturmlinien wählen und „Vorschlag erstellen“ tippen: Torhüter ins Tor, Verteidiger und Stürmer nach Stärke auf ihre Linien, die stärksten in Linie 1. Danach jeden Spieler über die Auswahl neben dem Namen umsetzen. Mitspieler sehen die Linien erst nach der Freigabe, und nie die Stärken.</p>`;
     return;
   }
-  $("#lineCount").value = String(ln.n);
+  $("#lineD").value = String(ln.d); $("#lineO").value = String(ln.o);
   const ins = attendees(t).map(r => r.id), inSet = new Set(ins);
   const gone = Object.keys(ln.slot).filter(id => !inSet.has(id) && S.roster[id]);
   const open = ins.filter(id => !ln.slot[id]);
@@ -770,19 +778,17 @@ function renderLines(){
     </div>`;
 }
 
-// Keeps only players who are still coming, in slots that exist
+// Keeps only players who are still coming, in lines that exist
 function cleanLines(t, ln){
-  const inSet = new Set(attendees(t).map(r => r.id)), keys = slotKeys(ln.n), slot = {};
+  const inSet = new Set(attendees(t).map(r => r.id)), keys = slotKeys(ln), slot = {};
   for (const [id, k] of Object.entries(ln.slot)) if (inSet.has(id) && keys.includes(k)) slot[id] = k;
-  return {n: ln.n, slot};
+  return {d: ln.d, o: ln.o, slot};
 }
 
 function linesText(t, ln){
-  const order = {G:0,D:1,O:2};
-  const rows = slotKeys(ln.n).map(k => {
-    const ps = Object.keys(ln.slot).filter(id => ln.slot[id] === k).map(person).filter(p => p.name)
-      .sort((x,y)=>order[x.pos]-order[y.pos]||byName(x,y));
-    return ps.length ? `${slotName(k)}: ${ps.map(p => k === "G" ? p.name : `${p.name} (${POS_SHORT[p.pos]||"S"})`).join(", ")}` : "";
+  const rows = slotKeys(ln).map(k => {
+    const ps = Object.keys(ln.slot).filter(id => ln.slot[id] === k).map(person).filter(p => p.name).sort(byName);
+    return ps.length ? `${slotName(k)}: ${ps.map(p => p.name).join(", ")}` : "";
   }).filter(Boolean);
   return `${kindOf(t)} ${dDay(t.start)} ${dTime(t.start)} Uhr${t.place ? " – "+t.place : ""}\n${rows.join("\n")}`;
 }
@@ -846,7 +852,7 @@ document.addEventListener("click", e => {
       api.setDraft(tr.id, {A, B});
     }
     else if (t.id==="btnLinesSuggest" && tr) {
-      const ln = suggestLines(tr, +$("#lineCount").value || 3);
+      const ln = suggestLines(tr, +$("#lineD").value || 2, +$("#lineO").value || 3);
       if (!Object.keys(ln.slot).length) { status("Noch keine Zusagen für dieses Spiel.", true); return; }
       api.setLines(tr.id, ln); status("");
     }
@@ -897,7 +903,9 @@ document.addEventListener("change", e => {
     if (el.value) ln.slot[el.dataset.slot] = el.value; else delete ln.slot[el.dataset.slot];
     api.setLines(tg.id, ln); return;
   }
-  if (el.id === "lineCount" && tg && draftLines(tg)) { api.setLines(tg.id, cleanLines(tg, {...draftLines(tg), n: +el.value || 3})); return; } const tr = el.closest("tr[data-pid]"); if (!tr || !el.dataset.f) return;
+  if ((el.id === "lineD" || el.id === "lineO") && tg && draftLines(tg)) {
+    api.setLines(tg.id, cleanLines(tg, {...draftLines(tg), d: +$("#lineD").value || 2, o: +$("#lineO").value || 3})); return;
+  } const tr = el.closest("tr[data-pid]"); if (!tr || !el.dataset.f) return;
   const id = tr.dataset.pid, f = el.dataset.f;
   if (f==="email") { if (!api.setAccess(id, el.value.trim().toLowerCase())) el.value = S.players[id].email || ""; return; }
   let v;

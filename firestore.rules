@@ -104,11 +104,12 @@ service cloud.firestore {
       }
     }
 
-    // Lines for a game: number of lines and per player "G" (goal) or "1".."4"
+    // Lines for a game: number of defence and forward lines, per player "G" (goal), "V1".."V4" or "S1".."S4"
     function validLines(l) {
       return l is map
-        && l.keys().hasOnly(['n', 'slot', 'at'])
-        && l.n is int && l.n >= 1 && l.n <= 4
+        && l.keys().hasOnly(['d', 'o', 'slot', 'at'])
+        && l.d is int && l.d >= 1 && l.d <= 4
+        && l.o is int && l.o >= 1 && l.o <= 4
         && l.slot is map;
     }
 
