@@ -89,7 +89,11 @@ service cloud.firestore {
         || ownAnswer();
 
       function validTraining(t) {
-        return t.keys().hasOnly(['start', 'place', 'kind', 'note', 'cancelled', 'responses', 'teams', 'lines', 'duration', 'noshow', 'createdAt'])
+        return t.keys().hasOnly(['start', 'place', 'kind', 'note', 'cancelled', 'responses', 'teams', 'lines', 'duration', 'noshow', 'result', 'createdAt'])
+          && (!('result' in t) || t.result == null || (t.result is map
+              && t.result.keys().hasOnly(['a', 'b'])
+              && t.result.a is int && t.result.a >= 0 && t.result.a <= 99
+              && t.result.b is int && t.result.b >= 0 && t.result.b <= 99))
           && (!('noshow' in t) || t.noshow is list)
           && (!('duration' in t) || (t.duration is int && t.duration >= 15 && t.duration <= 600))
           && (!('kind' in t) || t.kind in ['training', 'game'])

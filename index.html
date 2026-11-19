@@ -250,7 +250,7 @@ td input.email{width:220px}
           <option value="all">Alle</option>
         </select></label>
     </div>
-    <p class="muted">Gezählt werden vergangene Termine, die nicht ausgefallen sind. Spieler mit Zugang gelten als dabei, wenn sie nicht abgesagt haben – außer du markierst sie unten bei „Vergangene Termine“ als nicht erschienen. Nur für Trainer sichtbar.</p>
+    <p class="muted">Gezählt werden vergangene Termine, die nicht ausgefallen sind. Spieler mit Zugang gelten als dabei, wenn sie nicht abgesagt haben – außer du markierst sie unten bei „Vergangene Termine“ als nicht erschienen. S/U/N sind Siege, Unentschieden und Niederlagen: bei Spielen für alle, die da waren, bei Trainings nach den freigegebenen Teams. Nur für Trainer sichtbar.</p>
     <div class="tablewrap" id="statTable"></div>
   </section>
 
@@ -542,6 +542,7 @@ const api = {
   publishLines(t, ln){ api.updTraining(t.id, {lines: {d:ln.d, o:ln.o, slot:ln.slot, at:Date.now()}}); },
   unpublishLines(t){ api.updTraining(t.id, {lines: null}); },
   setNoShow(t, ids){ api.updTraining(t.id, {noshow: ids}); },
+  setResult(t, r){ api.updTraining(t.id, {result: r}); },
   answer(t, pid, val){ fire(fb.F.updateDoc(tRef(t.id), new fb.F.FieldPath("responses", pid), val)); },
 };
 
@@ -913,19 +914,46 @@ function statFrom(range, now = new Date()){
 }
 
 // Per player: appointments attended out of those held, split by trainings and games
+// Result of an appointment: {a, b}; a game is Stars (a) against the opponent (b), a training Team A against Team B
+const validResult = r => !!r && Number.isInteger(r.a) && Number.isInteger(r.b);
+// "W", "D" or "L" for a player who was there, or null when the result does not apply to them
+function outcomeOf(t, pid){
+  if (!validResult(t.result) || !wasThere(t, pid)) return null;
+  let side;
+  if (isGame(t)) side = "a";
+  else if (isTeams(t.teams)) side = t.teams.A.includes(pid) ? "a" : t.teams.B.includes(pid) ? "b" : null;
+  if (!side) return null;
+  const mine = side === "a" ? t.result.a : t.result.b, other = side === "a" ? t.result.b : t.result.a;
+  return mine > other ? "W" : mine < other ? "L" : "D";
+}
+
 function computeStats(past, from){
   const held = past.filter(t => !t.cancelled && t.start >= from);
   const nT = held.filter(t => !isGame(t)).length, nG = held.filter(isGame).length;
   const rows = Object.values(S.roster).map(r => {
-    let tr = 0, gm = 0, ns = 0;
+    let tr = 0, gm = 0, ns = 0, w = 0, d = 0, l = 0;
     for (const t of held) {
       if (wasThere(t, r.id)) { if (isGame(t)) gm++; else tr++; }
       else if (answerOf(t, r.id) === "in") ns++;
+      const o = outcomeOf(t, r.id);
+      if (o === "W") w++; else if (o === "D") d++; else if (o === "L") l++;
     }
     const all = nT + nG;
-    return {id:r.id, name:r.name, pos:r.pos, active:r.active, tr, gm, ns, rate: all ? (tr + gm) / all : 0};
+    return {id:r.id, name:r.name, pos:r.pos, active:r.active, tr, gm, ns, w, d, l, rate: all ? (tr + gm) / all : 0};
   }).filter(x => x.active || x.tr + x.gm + x.ns > 0);
   return {held, nT, nG, rows};
+}
+
+function resultEditor(t){
+  const game = isGame(t), r = validResult(t.result) ? t.result : null;
+  const [la, lb] = game ? ["Stars", "Gegner"] : ["Team A", "Team B"];
+  const hint = !game && !isTeams(t.teams) ? `<p class="note warn">Für dieses Training wurden keine Teams freigegeben – das Ergebnis zählt deshalb für keinen Spieler.</p>` : "";
+  return `<div class="row result"><b>Ergebnis</b> ${la}
+      <input type="number" min="0" max="99" step="1" data-resa value="${r ? r.a : ""}" aria-label="Tore ${la}" style="width:64px"> :
+      <input type="number" min="0" max="99" step="1" data-resb value="${r ? r.b : ""}" aria-label="Tore ${lb}" style="width:64px"> ${lb}
+      <button class="primary" data-ressave="${esc(t.id)}">Speichern</button>
+      ${r ? `<button data-resdel="${esc(t.id)}">Löschen</button>` : ""}
+    </div>${hint}`;
 }
 
 function renderStats(){
@@ -937,22 +965,23 @@ function renderStats(){
     const {key, dir} = S.statSort;
     const val = x => key === "name" ? x.name : key === "pos" ? "GDO".indexOf(x.pos) : x[key];
     const rows = st.rows.slice().sort((a,b) => (key === "name" ? byName(a,b) : (val(a) - val(b))) * dir || byName(a,b));
-    const th = (k,l,c="") => `<th class="${c}" data-ssort="${k}" aria-sort="${key===k?(dir>0?"ascending":"descending"):"none"}">${l}${key===k?(dir>0?" ▲":" ▼"):""}</th>`;
+    const th = (k,l,c="",title="") => `<th class="${c}" data-ssort="${k}" ${title ? `title="${title}"` : ""} aria-sort="${key===k?(dir>0?"ascending":"descending"):"none"}">${l}${key===k?(dir>0?" ▲":" ▼"):""}</th>`;
     const pct = x => Math.round(x * 100) + " %";
-    $("#statTable").innerHTML = `<table><thead><tr>${th("name","Name")}${th("pos","Position")}${th("tr",`Trainings (${st.nT})`,"num")}${th("gm",`Spiele (${st.nG})`,"num")}${th("ns","Nicht erschienen","num")}${th("rate","Quote","num")}</tr></thead><tbody>${
-      rows.map(x => `<tr class="${x.active ? "" : "inactive"}"><td>${esc(x.name)}</td><td>${POS[x.pos]||""}</td><td class="num">${x.tr}</td><td class="num">${x.gm}</td><td class="num">${x.ns || ""}</td><td class="num"><b>${pct(x.rate)}</b></td></tr>`).join("")
+    $("#statTable").innerHTML = `<table><thead><tr>${th("name","Name")}${th("pos","Position")}${th("tr",`Trainings (${st.nT})`,"num")}${th("gm",`Spiele (${st.nG})`,"num")}${th("ns","Nicht erschienen","num")}${th("w","S","num","Siege")}${th("d","U","num","Unentschieden")}${th("l","N","num","Niederlagen")}${th("rate","Quote","num")}</tr></thead><tbody>${
+      rows.map(x => `<tr class="${x.active ? "" : "inactive"}"><td>${esc(x.name)}</td><td>${POS[x.pos]||""}</td><td class="num">${x.tr}</td><td class="num">${x.gm}</td><td class="num">${x.ns || ""}</td><td class="num">${x.w}</td><td class="num">${x.d}</td><td class="num">${x.l}</td><td class="num"><b>${pct(x.rate)}</b></td></tr>`).join("")
     }</tbody></table>`;
   }
   const past = S.past.filter(t => t.start >= statFrom($("#statRange").value));
   $("#pastCount").textContent = past.length ? String(past.length) : "";
   $("#pastTable").innerHTML = !past.length ? `<div class="empty">Keine vergangenen Termine im gewählten Zeitraum.</div>`
-    : `<table><thead><tr><th>Datum</th><th>Art</th><th>Zeit</th><th>Ort</th><th class="num">Da</th><th>Nicht erschienen</th></tr></thead><tbody>${
+    : `<table><thead><tr><th>Datum</th><th>Art</th><th>Zeit</th><th>Ort</th><th class="num">Da</th><th class="num">Ergebnis</th><th></th></tr></thead><tbody>${
       past.map(t => {
         const ins = attendees(t), ns = ins.filter(r => noShows(t).includes(r.id)).length, open = S.openPast === t.id;
-        const row = `<tr class="${t.cancelled ? "inactive" : ""}"><td>${dDay(t.start)}${new Date(t.start).getFullYear() !== new Date().getFullYear() ? new Date(t.start).getFullYear() : ""}</td><td>${kindOf(t)}</td><td>${tRange(t)}</td><td>${esc(t.place||"")}</td><td class="num">${t.cancelled ? "fiel aus" : ins.length - ns}</td><td>${
-          t.cancelled ? "" : `<button data-nsopen="${esc(t.id)}" aria-expanded="${open}">${open ? "Fertig" : ns ? `${ns} – ändern` : "Erfassen"}</button>`}</td></tr>`;
+        const res = validResult(t.result) ? `${t.result.a}:${t.result.b}` : "–";
+        const row = `<tr class="${t.cancelled ? "inactive" : ""}"><td>${dDay(t.start)}${new Date(t.start).getFullYear() !== new Date().getFullYear() ? new Date(t.start).getFullYear() : ""}</td><td>${kindOf(t)}</td><td>${tRange(t)}</td><td>${esc(t.place||"")}</td><td class="num">${t.cancelled ? "fiel aus" : `${ins.length - ns}${ns ? ` <small>(${ns} n. e.)</small>` : ""}`}</td><td class="num">${t.cancelled ? "" : res}</td><td>${
+          t.cancelled ? "" : `<button data-nsopen="${esc(t.id)}" aria-expanded="${open}">${open ? "Fertig" : (validResult(t.result) || ns) ? "Bearbeiten" : "Erfassen"}</button>`}</td></tr>`;
         if (!open || t.cancelled) return row;
-        return row + `<tr><td colspan="6"><p class="muted">Angetippt = war da. Wer zugesagt hat, aber nicht gekommen ist, hier antippen.</p><div class="chips">${
+        return row + `<tr><td colspan="7">${resultEditor(t)}<p class="muted">Anwesenheit: angetippt = war da. Wer zugesagt hat, aber nicht gekommen ist, hier antippen.</p><div class="chips">${
           ins.map(r => `<button class="chip${r.access ? "" : " guest"}" data-noshow="${esc(r.id)}" data-tid="${esc(t.id)}" aria-pressed="${!noShows(t).includes(r.id)}">${esc(r.name)}</button>`).join("") || `<span class="muted">Niemand hatte zugesagt.</span>`
         }</div></td></tr>`;
       }).join("")
@@ -1034,6 +1063,17 @@ document.addEventListener("click", e => {
       t.blur(); api.delPlayer(id); status(`${name} gelöscht.`);
     });
     else if (t.dataset.nsopen) { S.openPast = S.openPast === t.dataset.nsopen ? null : t.dataset.nsopen; renderStats(); }
+    else if (t.dataset.ressave) {
+      const pt = S.past.find(x => x.id === t.dataset.ressave); if (!pt) return;
+      const box = t.closest("td"), ra = box.querySelector("[data-resa]").value.trim(), rb = box.querySelector("[data-resb]").value.trim();
+      const a = Number(ra), b = Number(rb);
+      if (ra === "" || rb === "" || !Number.isInteger(a) || !Number.isInteger(b) || a < 0 || b < 0 || a > 99 || b > 99) { status("Bitte beide Tore als ganze Zahl von 0 bis 99 eingeben.", true); return; }
+      api.setResult(pt, {a, b}); status(`Ergebnis ${a}:${b} gespeichert.`);
+    }
+    else if (t.dataset.resdel) {
+      const pt = S.past.find(x => x.id === t.dataset.resdel); if (!pt) return;
+      confirmBtn(t, () => { api.setResult(pt, null); status("Ergebnis gelöscht."); });
+    }
     else if (t.dataset.noshow) {
       const pt = S.past.find(x => x.id === t.dataset.tid); if (!pt) return;
       const id = t.dataset.noshow, cur = noShows(pt);
