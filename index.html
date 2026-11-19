@@ -777,20 +777,39 @@ const slotShort = k => k === "G" ? "Tor" : k;
 // A defence line has at most 2 players, a forward line at most 3; the goal has no limit
 const slotCap = k => k[0] === "V" ? 2 : k[0] === "S" ? 3 : Infinity;
 const slotCount = (ln, k) => Object.values(ln.slot).filter(v => v === k).length;
-const slotFull = (ln, k) => slotCount(ln, k) >= slotCap(k);
+const overfull = ln => slotKeys(ln).filter(k => slotCount(ln, k) > slotCap(k));
 
-// Goalies in goal; defenders and forwards by strength into their lines, the strongest in line 1.
-// Lines are filled evenly up to their limit (2 defenders, 3 forwards); who does not fit stays unassigned.
-function suggestLines(t, d, o){
-  const ps = attendees(t).map(r => person(r.id)).filter(p => p.name);
-  const slot = {};
-  ps.filter(p => p.pos === "G").forEach(p => slot[p.id] = "G");
-  for (const [k, n, pre] of [["D", d, "V"], ["O", o, "S"]]) {
-    const g = ps.filter(p => p.pos === k).sort((a,b) => (+b.rating||5) - (+a.rating||5) || byName(a,b));
-    const fit = g.slice(0, n * slotCap(pre));
-    fit.forEach((p, i) => slot[p.id] = pre + (Math.floor(i * n / fit.length) + 1));
+// Splits players into n lines of even size so that the line averages are as close as possible.
+// Out of many random splits one of the most balanced is taken, so a new suggestion can differ.
+function balancedSplit(ps, n){
+  if (!ps.length) return [];
+  const sizes = Array.from({length:n}, (_, i) => Math.floor(ps.length / n) + (i < ps.length % n ? 1 : 0));
+  const avg = g => g.length ? g.reduce((s,p) => s + (+p.rating||5), 0) / g.length : 0;
+  const cands = [];
+  for (let it = 0; it < 3000; it++) {
+    const sh = shuffle(ps.slice()), groups = []; let at = 0;
+    for (const sz of sizes) { groups.push(sh.slice(at, at + sz)); at += sz; }
+    const means = groups.filter(g => g.length).map(avg);
+    cands.push({groups, cost: Math.max(...means) - Math.min(...means)});
   }
-  return {d, o, slot};
+  const best = Math.min(...cands.map(c => c.cost));
+  const pool = cands.filter(c => c.cost <= best + 0.05);
+  return pool[Math.floor(Math.random() * pool.length)].groups;
+}
+
+// Goalies in goal. As many lines as needed (2 defenders, 3 forwards per line, at most 4 lines),
+// each line about as strong as the others. Who does not fit into 4 lines stays unassigned.
+function suggestLines(t){
+  const ps = attendees(t).map(r => person(r.id)).filter(p => p.name);
+  const slot = {}, count = {};
+  ps.filter(p => p.pos === "G").forEach(p => slot[p.id] = "G");
+  for (const [k, pre] of [["D", "V"], ["O", "S"]]) {
+    const g = ps.filter(p => p.pos === k).sort((a,b) => (+b.rating||5) - (+a.rating||5) || byName(a,b));
+    const n = Math.min(4, Math.max(1, Math.ceil(g.length / slotCap(pre))));
+    count[pre] = n;
+    balancedSplit(g.slice(0, n * slotCap(pre)), n).forEach((grp, i) => grp.forEach(p => slot[p.id] = pre + (i + 1)));
+  }
+  return {d: count.V, o: count.S, slot};
 }
 
 function lineHTML(key, ids, ln, edit){
@@ -798,8 +817,8 @@ function lineHTML(key, ids, ln, edit){
   const people = ids.map(person).filter(p => p.name).sort((x,y)=>order[x.pos]-order[y.pos]||byName(x,y));
   const head = `${key && key !== "G" ? `${people.length}/${slotCap(key)}` : people.length}${isTrainer() && people.length && key && key !== "G" ? " · Ø "+fmt(mean(people)) : ""}`;
   const opts = id => [...slotKeys(ln), ""].map(k => {
-    const mine = (ln.slot[id]||"") === k, full = k && !mine && slotFull(ln, k);
-    return `<option value="${k}" ${mine ? "selected" : ""} ${full ? "disabled" : ""}>${k ? slotShort(k) + (full ? " (voll)" : "") : "–"}</option>`;
+    const mine = (ln.slot[id]||"") === k, cap = k ? slotCap(k) : Infinity;
+    return `<option value="${k}" ${mine ? "selected" : ""}>${k ? slotShort(k) + (cap < Infinity ? ` (${slotCount(ln, k)}/${cap})` : "") : "–"}</option>`;
   }).join("");
   return `<div class="team l${key ? "" : " off"}"><h3>${key ? slotName(key) : "Nicht eingeteilt"}<span>${head}</span></h3>${
     people.map(p=>`<div class="tp"><span class="pos">${POS_SHORT[p.pos]||"S"}</span><span>${nrHTML(p)}${esc(p.name)}</span><span class="q">${isTrainer() ? fmt(+p.rating||5) : ""}</span>${
@@ -827,7 +846,7 @@ function renderLines(){
   }
   const ln = draftLines(t), pub = publishedLines(t);
   if (!ln) {
-    box.innerHTML = `<p class="muted">Wenn die Zusagen stehen, Anzahl der Verteidigungs- und Sturmlinien wählen und „Vorschlag erstellen“ tippen: Torhüter ins Tor, Verteidiger und Stürmer nach Stärke auf ihre Linien, die stärksten in Linie 1. Danach jeden Spieler über die Auswahl neben dem Namen umsetzen. Mitspieler sehen die Linien erst nach der Freigabe, und nie die Stärken.</p>`;
+    box.innerHTML = `<p class="muted">Wenn die Zusagen stehen, „Vorschlag erstellen“ tippen: Torhüter ins Tor, dazu so viele Linien wie nötig (2 Verteidiger bzw. 3 Stürmer je Linie), alle Linien etwa gleich stark. Nochmal tippen gibt eine andere ausgewogene Verteilung. Danach Spieler über die Auswahl neben dem Namen umsetzen, auch über das Limit hinaus; freigeben lässt sich erst, wenn keine Linie überbelegt ist. Mitspieler sehen die Linien erst nach der Freigabe, und nie die Stärken.</p>`;
     return;
   }
   $("#lineD").value = String(ln.d); $("#lineO").value = String(ln.o);
@@ -841,10 +860,10 @@ function renderLines(){
   box.innerHTML = `${state}
     ${gone.length ? `<p class="note warn">Inzwischen abgesagt: ${gone.map(id => esc(person(id).name)).join(", ")}. Sie fallen beim nächsten Umsetzen oder Freigeben heraus.</p>` : ""}
     ${open.length ? `<p class="note warn">Noch nicht eingeteilt: ${open.length} Spieler. Sind die Linien voll, oben eine weitere Linie wählen.</p>` : ""}
-    ${slotKeys(ln).filter(k => slotCount(ln, k) > slotCap(k)).map(k => `<p class="note warn">${slotName(k)} hat zu viele Spieler (höchstens ${slotCap(k)}).</p>`).join("")}
+    ${overfull(ln).map(k => `<p class="note warn">${slotName(k)} hat zu viele Spieler (höchstens ${slotCap(k)}). Freigeben geht erst, wenn keine Linie überbelegt ist.</p>`).join("")}
     ${linesBody(ln, ins, true)}
     <div class="row">
-      ${same ? "" : `<button id="btnLinesPublish" class="primary">${pub ? "Änderungen freigeben" : "Linien freigeben"}</button>`}
+      ${same ? "" : `<button id="btnLinesPublish" class="primary" ${overfull(ln).length ? "disabled" : ""}>${pub ? "Änderungen freigeben" : "Linien freigeben"}</button>`}
       <button id="btnLinesCopy">Als Text kopieren</button>
       ${pub ? `<button id="btnLinesUnpublish" class="danger">Freigabe zurückziehen</button>` : ""}
     </div>`;
@@ -980,12 +999,13 @@ document.addEventListener("click", e => {
       api.setDraft(tr.id, {A, B});
     }
     else if (t.id==="btnLinesSuggest" && tr) {
-      const ln = suggestLines(tr, +$("#lineD").value || 2, +$("#lineO").value || 3);
+      const ln = suggestLines(tr);
       if (!Object.keys(ln.slot).length) { status("Noch keine Zusagen für dieses Spiel.", true); return; }
       api.setLines(tr.id, ln); status("");
     }
     else if (t.id==="btnLinesCopy" && tr) { const ln = isTrainer() ? draftLines(tr) : publishedLines(tr); if (ln) copy(linesText(tr, ln), t); }
-    else if (t.id==="btnLinesPublish" && tr && draftLines(tr)) { const ln = cleanLines(tr, draftLines(tr)); api.setLines(tr.id, ln); api.publishLines(tr, ln); status("Linien freigegeben. Alle Mitspieler sehen sie jetzt."); }
+    else if (t.id==="btnLinesPublish" && tr && draftLines(tr)) { const ln = cleanLines(tr, draftLines(tr));
+      if (overfull(ln).length) { status(`Erst freigeben, wenn keine Linie überbelegt ist: ${overfull(ln).map(slotName).join(", ")}.`, true); return; } api.setLines(tr.id, ln); api.publishLines(tr, ln); status("Linien freigegeben. Alle Mitspieler sehen sie jetzt."); }
     else if (t.id==="btnLinesUnpublish" && tr) confirmBtn(t, () => { api.unpublishLines(tr); status("Freigabe zurückgezogen. Mitspieler sehen keine Linien mehr."); });
     else if (t.id==="btnCopy" && tr) { const tm = isTrainer() ? draftOf(tr) : published(tr); if (tm) copy(teamsText(tr, tm), t); }
     else if (t.id==="btnPublish" && tr && draftOf(tr)) { api.publish(tr, draftOf(tr)); status("Teams freigegeben. Alle Mitspieler sehen sie jetzt."); }
@@ -1039,9 +1059,6 @@ document.addEventListener("change", e => {
   const tg = selTraining();
   if (el.dataset.slot && tg && draftLines(tg)) {
     const ln = cleanLines(tg, draftLines(tg));
-    if (el.value && ln.slot[el.dataset.slot] !== el.value && slotFull(ln, el.value)) {
-      status(`${slotName(el.value)} ist schon voll (höchstens ${slotCap(el.value)} Spieler).`, true); renderLines(); return;
-    }
     if (el.value) ln.slot[el.dataset.slot] = el.value; else delete ln.slot[el.dataset.slot];
     api.setLines(tg.id, ln); return;
   }
