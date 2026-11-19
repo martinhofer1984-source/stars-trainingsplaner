@@ -774,15 +774,21 @@ const range = n => Array.from({length:n}, (_, i) => i + 1);
 const slotKeys = ln => ["G", ...range(ln.d).map(i => "V"+i), ...range(ln.o).map(i => "S"+i)];
 const slotName = k => k === "G" ? "Tor" : (k[0] === "V" ? "Verteidigung " : "Sturm ") + k.slice(1);
 const slotShort = k => k === "G" ? "Tor" : k;
+// A defence line has at most 2 players, a forward line at most 3; the goal has no limit
+const slotCap = k => k[0] === "V" ? 2 : k[0] === "S" ? 3 : Infinity;
+const slotCount = (ln, k) => Object.values(ln.slot).filter(v => v === k).length;
+const slotFull = (ln, k) => slotCount(ln, k) >= slotCap(k);
 
-// Goalies in goal; defenders and forwards by strength into their lines, the strongest in line 1
+// Goalies in goal; defenders and forwards by strength into their lines, the strongest in line 1.
+// Lines are filled evenly up to their limit (2 defenders, 3 forwards); who does not fit stays unassigned.
 function suggestLines(t, d, o){
   const ps = attendees(t).map(r => person(r.id)).filter(p => p.name);
   const slot = {};
   ps.filter(p => p.pos === "G").forEach(p => slot[p.id] = "G");
   for (const [k, n, pre] of [["D", d, "V"], ["O", o, "S"]]) {
     const g = ps.filter(p => p.pos === k).sort((a,b) => (+b.rating||5) - (+a.rating||5) || byName(a,b));
-    g.forEach((p, i) => slot[p.id] = pre + (Math.floor(i * n / g.length) + 1));
+    const fit = g.slice(0, n * slotCap(pre));
+    fit.forEach((p, i) => slot[p.id] = pre + (Math.floor(i * n / fit.length) + 1));
   }
   return {d, o, slot};
 }
@@ -790,9 +796,11 @@ function suggestLines(t, d, o){
 function lineHTML(key, ids, ln, edit){
   const order = {G:0,D:1,O:2};
   const people = ids.map(person).filter(p => p.name).sort((x,y)=>order[x.pos]-order[y.pos]||byName(x,y));
-  const head = `${people.length}${isTrainer() && people.length && key && key !== "G" ? " · Ø "+fmt(mean(people)) : ""}`;
-  const opts = id => [...slotKeys(ln), ""].map(k =>
-    `<option value="${k}" ${(ln.slot[id]||"")===k ? "selected" : ""}>${k ? slotShort(k) : "–"}</option>`).join("");
+  const head = `${key && key !== "G" ? `${people.length}/${slotCap(key)}` : people.length}${isTrainer() && people.length && key && key !== "G" ? " · Ø "+fmt(mean(people)) : ""}`;
+  const opts = id => [...slotKeys(ln), ""].map(k => {
+    const mine = (ln.slot[id]||"") === k, full = k && !mine && slotFull(ln, k);
+    return `<option value="${k}" ${mine ? "selected" : ""} ${full ? "disabled" : ""}>${k ? slotShort(k) + (full ? " (voll)" : "") : "–"}</option>`;
+  }).join("");
   return `<div class="team l${key ? "" : " off"}"><h3>${key ? slotName(key) : "Nicht eingeteilt"}<span>${head}</span></h3>${
     people.map(p=>`<div class="tp"><span class="pos">${POS_SHORT[p.pos]||"S"}</span><span>${nrHTML(p)}${esc(p.name)}</span><span class="q">${isTrainer() ? fmt(+p.rating||5) : ""}</span>${
       edit ? `<select data-slot="${esc(p.id)}" aria-label="${esc(p.name)} einteilen">${opts(p.id)}</select>` : "<span></span>"}</div>`).join("") || `<span class="muted">–</span>`
@@ -832,7 +840,8 @@ function renderLines(){
     : `<p class="note warn">Geändert. Mitspieler sehen noch die zuletzt freigegebenen Linien.</p>`;
   box.innerHTML = `${state}
     ${gone.length ? `<p class="note warn">Inzwischen abgesagt: ${gone.map(id => esc(person(id).name)).join(", ")}. Sie fallen beim nächsten Umsetzen oder Freigeben heraus.</p>` : ""}
-    ${open.length ? `<p class="note warn">Noch nicht eingeteilt: ${open.length} Spieler.</p>` : ""}
+    ${open.length ? `<p class="note warn">Noch nicht eingeteilt: ${open.length} Spieler. Sind die Linien voll, oben eine weitere Linie wählen.</p>` : ""}
+    ${slotKeys(ln).filter(k => slotCount(ln, k) > slotCap(k)).map(k => `<p class="note warn">${slotName(k)} hat zu viele Spieler (höchstens ${slotCap(k)}).</p>`).join("")}
     ${linesBody(ln, ins, true)}
     <div class="row">
       ${same ? "" : `<button id="btnLinesPublish" class="primary">${pub ? "Änderungen freigeben" : "Linien freigeben"}</button>`}
@@ -1030,6 +1039,9 @@ document.addEventListener("change", e => {
   const tg = selTraining();
   if (el.dataset.slot && tg && draftLines(tg)) {
     const ln = cleanLines(tg, draftLines(tg));
+    if (el.value && ln.slot[el.dataset.slot] !== el.value && slotFull(ln, el.value)) {
+      status(`${slotName(el.value)} ist schon voll (höchstens ${slotCap(el.value)} Spieler).`, true); renderLines(); return;
+    }
     if (el.value) ln.slot[el.dataset.slot] = el.value; else delete ln.slot[el.dataset.slot];
     api.setLines(tg.id, ln); return;
   }
