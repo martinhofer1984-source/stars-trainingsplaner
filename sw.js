@@ -2,7 +2,7 @@
 // Strategy: the page is loaded network first (cache when offline), so an update is used at the
 // next start; icons and other files are served from cache and refreshed in the background.
 // Bump CACHE when files are added or removed; keep SDK in sync with index.html.
-const CACHE = "stars-trainingsplaner-v3";
+const CACHE = "stars-trainingsplaner-v4";
 const SDK = "https://www.gstatic.com/firebasejs/12.6.0/";
 const FILES = [
   "./",
@@ -61,4 +61,33 @@ self.addEventListener("fetch", event => {
       return cached || network;
     })
   );
+});
+
+// Push notifications (sent by the Cloud Functions through Firebase Cloud Messaging).
+// The message carries title, body and the page to open in its data part.
+self.addEventListener("push", event => {
+  let p = {};
+  try { p = event.data ? event.data.json() : {}; } catch { p = {}; }
+  const n = p.notification || {}, d = p.data || {};
+  const title = n.title || d.title || "Stars Trainingsplaner";
+  event.waitUntil(self.registration.showNotification(title, {
+    body: n.body || d.body || "",
+    icon: "icons/icon-192.png",
+    badge: "icons/favicon-32.png",
+    tag: d.tag || undefined,
+    data: { link: d.link || "./" },
+  }));
+});
+
+// Tapping a notification opens the app (or brings it to the front) on the right page
+self.addEventListener("notificationclick", event => {
+  event.notification.close();
+  const target = new URL(event.notification.data?.link || "./", self.registration.scope).href;
+  event.waitUntil((async () => {
+    const wins = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
+    for (const w of wins) {
+      if (w.url.startsWith(self.registration.scope)) { await w.focus(); return w.navigate(target).catch(() => {}); }
+    }
+    return self.clients.openWindow(target);
+  })());
 });

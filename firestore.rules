@@ -137,6 +137,30 @@ service cloud.firestore {
         && (!('lines' in request.resource.data) || validLines(request.resource.data.lines));
     }
 
+    // Team info: trainers write messages, everybody reads them. Automatic entries come from the
+    // Cloud Functions (admin access, not bound by these rules).
+    match /news/{id} {
+      allow read: if isMember();
+      allow delete: if isTrainer();
+      allow create: if isTrainer()
+        && request.resource.data.keys().hasOnly(['title', 'text', 'at', 'by', 'kind'])
+        && request.resource.data.title is string && request.resource.data.title.size() > 0 && request.resource.data.title.size() <= 80
+        && request.resource.data.text is string && request.resource.data.text.size() <= 1000
+        && request.resource.data.by is string && request.resource.data.by.size() <= 80
+        && request.resource.data.at is timestamp
+        && request.resource.data.kind == 'info';
+    }
+
+    // Push tokens: each member registers and removes the own devices; nobody reads them
+    // (the Cloud Functions do, with admin access). The token itself is the document id.
+    match /tokens/{token} {
+      allow create, update: if isMember()
+        && request.resource.data.keys().hasOnly(['email', 'at'])
+        && request.resource.data.email == myEmail()
+        && request.resource.data.at is number;
+      allow delete: if signedIn() && resource.data.email == myEmail();
+    }
+
     // Everything else stays closed.
     match /{document=**} {
       allow read, write: if false;
