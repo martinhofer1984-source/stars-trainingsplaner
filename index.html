@@ -171,6 +171,7 @@ td input.email{width:220px}
         <label for="ntStart">Beginn<input id="ntStart" type="datetime-local"></label>
         <label for="ntPlace">Ort<input id="ntPlace" maxlength="80" placeholder="z. B. Eishalle"></label>
         <label for="ntKind">Art<select id="ntKind"><option value="training" selected>Training</option><option value="game">Spiel</option></select></label>
+        <label for="ntDur">Dauer<select id="ntDur"><option value="60">1 Std.</option><option value="75">1 Std. 15 Min.</option><option value="90" selected>1 Std. 30 Min.</option><option value="105">1 Std. 45 Min.</option><option value="120">2 Std.</option><option value="150">2 Std. 30 Min.</option><option value="180">3 Std.</option></select></label>
       </div>
       <div class="row" style="margin-top:10px"><button id="btnAddTraining" class="primary">Termin anlegen</button></div>
     </details>
@@ -283,6 +284,9 @@ const validEmail = s => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s);
 const WD = ["So","Mo","Di","Mi","Do","Fr","Sa"];
 const dDay = ms => { const d = new Date(ms); return `${WD[d.getDay()]} ${String(d.getDate()).padStart(2,"0")}.${String(d.getMonth()+1).padStart(2,"0")}.`; };
 const dTime = ms => new Date(ms).toLocaleTimeString("de-DE",{hour:"2-digit",minute:"2-digit"});
+// Start and, when the duration is known, end time ("19:00–20:30"); older entries have no duration
+const endOf = t => Number.isFinite(t.duration) && t.duration > 0 ? t.start + t.duration * 60000 : null;
+const tRange = t => endOf(t) ? `${dTime(t.start)}–${dTime(endOf(t))}` : dTime(t.start);
 
 function status(msg, warn){ const el=$("#status"); el.hidden=!msg; el.textContent=msg||""; el.classList.toggle("warn",!!warn); }
 
@@ -481,9 +485,9 @@ const api = {
     }
     fire(b.commit());
   },
-  addTraining(startMs, place, kind){
+  addTraining(startMs, place, kind, duration){
     fire(fb.F.addDoc(fb.F.collection(fb.db, "trainings"),
-      {start: fb.F.Timestamp.fromMillis(startMs), place, kind, note:"", cancelled:false, responses:{}, teams:null, createdAt:Date.now()}));
+      {start: fb.F.Timestamp.fromMillis(startMs), place, kind, duration, note:"", cancelled:false, responses:{}, teams:null, createdAt:Date.now()}));
   },
   updTraining(id, patch){ fire(fb.F.updateDoc(tRef(id), patch)); },
   delTraining(id){ const b = batcher(); b.delete(tRef(id)); b.delete(dRef(id)); fire(b.commit()); },
@@ -602,7 +606,7 @@ function renderTrainings(){
     else pill = `<span class="pill in">${attendees(t).length} dabei</span>`;
     return `<button class="tcard" data-sel="${esc(t.id)}" aria-current="${t.id===S.sel}">
       <span class="tdate"><small>${dDay(t.start).slice(0,2)}</small>${dDay(t.start).slice(3)}</span>
-      <span class="tinfo"><b>${dTime(t.start)} Uhr${t.place ? " · "+esc(t.place) : ""}</b><span>${kindOf(t)}${t.note ? " · "+esc(t.note) : ""}</span></span>
+      <span class="tinfo"><b>${tRange(t)} Uhr${t.place ? " · "+esc(t.place) : ""}</b><span>${kindOf(t)}${t.note ? " · "+esc(t.note) : ""}</span></span>
       ${pill}</button>`;
   }).join("");
 }
@@ -625,7 +629,7 @@ function renderDetail(){
                 <span class="muted">möglich bis ${dDay(deadlineOf(t))} ${dTime(deadlineOf(t))} Uhr</span>`}
     </div>`;
   }
-  box.innerHTML = `<h2>${kindOf(t)} · ${dDay(t.start)} · ${dTime(t.start)} Uhr <small>${esc(t.place||"")}</small></h2>
+  box.innerHTML = `<h2>${kindOf(t)} · ${dDay(t.start)} · ${tRange(t)} Uhr <small>${esc(t.place||"")}</small></h2>
     ${t.note ? `<p>${esc(t.note)}</p>` : ""}
     ${t.cancelled ? `<p class="note warn">Dieser Termin fällt aus.</p>` : mine}
     ${t.cancelled ? "" : `<div class="names"><b>Dabei (${ins.length}):</b> Tor ${cnt("G")} · Verteidigung ${cnt("D")} · Sturm ${cnt("O")}<br>${ins.map(r=>esc(r.name)).join(", ") || "–"}</div>
@@ -790,7 +794,7 @@ function linesText(t, ln){
     const ps = Object.keys(ln.slot).filter(id => ln.slot[id] === k).map(person).filter(p => p.name).sort(byName);
     return ps.length ? `${slotName(k)}: ${ps.map(p => p.name).join(", ")}` : "";
   }).filter(Boolean);
-  return `${kindOf(t)} ${dDay(t.start)} ${dTime(t.start)} Uhr${t.place ? " – "+t.place : ""}\n${rows.join("\n")}`;
+  return `${kindOf(t)} ${dDay(t.start)} ${tRange(t)} Uhr${t.place ? " – "+t.place : ""}\n${rows.join("\n")}`;
 }
 
 function renderPlayers(){
@@ -822,7 +826,7 @@ function renderKonto(){
 function teamsText(t, tm){
   const name = id => S.roster[id]?.name || S.players[id]?.name;
   const l = ids => ids.map(id => ({id, n:name(id), p:(S.roster[id]||S.players[id]||{}).pos})).filter(x=>x.n).map(x=>`${x.n} (${POS_SHORT[x.p]||"S"})`).join(", ");
-  return `${kindOf(t)} ${dDay(t.start)} ${dTime(t.start)} Uhr${t.place ? " – "+t.place : ""}\nTeam A: ${l(tm.A)}\nTeam B: ${l(tm.B)}`;
+  return `${kindOf(t)} ${dDay(t.start)} ${tRange(t)} Uhr${t.place ? " – "+t.place : ""}\nTeam A: ${l(tm.A)}\nTeam B: ${l(tm.B)}`;
 }
 async function copy(text, btn){
   try { await navigator.clipboard.writeText(text); const x=btn.textContent; btn.textContent="Kopiert"; setTimeout(()=>btn.textContent=x,1500); }
@@ -869,9 +873,10 @@ document.addEventListener("click", e => {
       if (!Number.isFinite(ms)) { status("Bitte Datum und Uhrzeit für den Beginn eingeben.", true); return; }
       if (ms < Date.now()) { status("Der Beginn liegt in der Vergangenheit.", true); return; }
       const kind = $("#ntKind").value === "game" ? "game" : "training";
-      api.addTraining(ms, $("#ntPlace").value.trim(), kind);
-      $("#ntStart").value = ""; $("#ntKind").value = "training"; $("#newTraining").open = false;
-      status(`${kind === "game" ? "Spiel" : "Training"} am ${dDay(ms)} um ${dTime(ms)} Uhr angelegt.`);
+      const duration = Math.min(600, Math.max(15, Math.round(+$("#ntDur").value || 90)));
+      api.addTraining(ms, $("#ntPlace").value.trim(), kind, duration);
+      $("#ntStart").value = ""; $("#ntKind").value = "training"; $("#ntDur").value = "90"; $("#newTraining").open = false;
+      status(`${kind === "game" ? "Spiel" : "Training"} am ${dDay(ms)} von ${dTime(ms)} bis ${dTime(ms + duration * 60000)} Uhr angelegt.`);
     }
     else if (t.id==="btnAdd") {
       const name=$("#newName").value.trim(); if(!name){ status("Bitte einen Namen eingeben.", true); return; }
