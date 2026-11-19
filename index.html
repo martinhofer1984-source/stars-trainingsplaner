@@ -320,7 +320,7 @@ td input.email{width:220px}
         <label for="nnText">Nachricht<textarea id="nnText" maxlength="1000" rows="4" placeholder="Was die Mannschaft wissen soll"></textarea></label>
       </div>
       <div class="row" style="margin-top:10px"><button id="btnNews" class="primary">Senden</button></div>
-      <p class="muted">Die Nachricht erscheint hier und kommt als Push-Nachricht bei allen an, die Benachrichtigungen eingeschaltet haben.</p>
+      <p class="muted">Die Nachricht erscheint hier und kommt als Push-Nachricht bei allen an, die Benachrichtigungen eingeschaltet haben. Nach 7 Tagen wird sie automatisch gelöscht; Einträge zu einem Termin verschwinden, sobald er vorbei ist.</p>
     </details>
     <div id="newsList" class="news"></div>
   </section>
@@ -1398,23 +1398,36 @@ function postenRows(){
 /* ---------- team info ---------- */
 const SEEN_KEY = "stars-news-seen";
 const seenAt = () => { try { return +localStorage.getItem(SEEN_KEY) || 0; } catch { return 0; } };
-const unreadNews = () => S.news.filter(n => n.at > seenAt()).length;
+// Entries about an appointment disappear once it is over, everything else after 7 days
+// (the server deletes them every 15 minutes; this hides them right away)
+const NEWS_DAYS = 7;
+const newsTid = n => n.tid || (/^(?:t|teams|lines)-(.+)$/.exec(n.tag || "") || [])[1] || null;
+function visibleNews(){
+  const old = Date.now() - NEWS_DAYS * 864e5;
+  return S.news.filter(n => {
+    const tid = n.kind === "event" ? newsTid(n) : null;
+    if (!tid) return n.at >= old;
+    const t = S.allTrainings.find(x => x.id === tid);
+    return !!t && !isOver(t);
+  });
+}
+const unreadNews = () => visibleNews().filter(n => n.at > seenAt()).length;
 function renderUnread(){
   const n = view() === "info" ? 0 : unreadNews();
   for (const el of [$("#menuDot"), $("#navDot")]) { el.hidden = !n; el.textContent = n > 9 ? "9+" : String(n); }
 }
 function renderNews(){
-  const seen = seenAt();
+  const seen = seenAt(), news = visibleNews();
   renderPushHint();
-  $("#newsList").innerHTML = !S.news.length ? `<div class="empty">Noch keine Nachrichten.</div>`
-    : S.news.map(n => `<div class="nitem${n.at > seen ? " unread" : ""}${n.kind === "event" ? " auto" : ""}">
+  $("#newsList").innerHTML = !news.length ? `<div class="empty">Keine aktuellen Nachrichten.</div>`
+    : news.map(n => `<div class="nitem${n.at > seen ? " unread" : ""}${n.kind === "event" ? " auto" : ""}">
         <h3>${esc(n.title || "")}<small>${n.at ? dDay(n.at) + " " + dTime(n.at) : ""}</small></h3>
         ${n.text ? `<p>${esc(n.text)}</p>` : ""}
         <span class="muted">${n.kind === "event" ? "automatisch" : "von " + esc(n.by || "Trainer")}</span>
         ${isTrainer() ? `<div class="row"><button class="danger" data-newsdel="${esc(n.id)}">Löschen</button></div>` : ""}
       </div>`).join("");
   // Opening the tab marks everything as read
-  if (S.news.length) { try { localStorage.setItem(SEEN_KEY, String(Math.max(seen, S.news[0].at))); } catch {} }
+  if (news.length) { try { localStorage.setItem(SEEN_KEY, String(Math.max(seen, news[0].at))); } catch {} }
 }
 
 /* ---------- push notifications ---------- */
@@ -1679,7 +1692,7 @@ window.addEventListener("hashchange", () => { closePast(); closeMenu(); render()
 window.addEventListener("online", render);
 window.addEventListener("offline", render);
 // Re-evaluate deadlines now and then while the app stays open
-setInterval(() => { splitTrainings(); if (["training","statistik","ergebnisse","kasse","konto"].includes(view())) render(); }, 60000);
+setInterval(() => { splitTrainings(); if (["training","info","statistik","ergebnisse","kasse","konto"].includes(view())) render(); else renderUnread(); }, 60000);
 
 /* ---------- backup ---------- */
 let pendingImport = null;

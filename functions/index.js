@@ -9,6 +9,7 @@ const { setGlobalOptions, logger } = require("firebase-functions/v2");
 const { initializeApp } = require("firebase-admin/app");
 const { getFirestore, Timestamp } = require("firebase-admin/firestore");
 const { getMessaging } = require("firebase-admin/messaging");
+const { cleanupNews } = require("./cleanup");
 
 initializeApp();
 setGlobalOptions({ region: "europe-west1", maxInstances: 2 });
@@ -46,9 +47,10 @@ async function pushAll({ title, body, link = "#training", tag }) {
   }
 }
 
-// Writes an automatic entry into the Team-Info feed; onNews pushes it
-const post = (title, text, link, tag) =>
-  db.collection("news").add({ title, text, link, ...(tag ? { tag } : {}), at: Timestamp.now(), by: "App", kind: "event" });
+// Writes an automatic entry into the Team-Info feed; onNews pushes it. tid links it to the
+// appointment, so the entry disappears once the appointment is over.
+const post = (title, text, link, tag, tid) =>
+  db.collection("news").add({ title, text, link, ...(tag ? { tag } : {}), ...(tid ? { tid } : {}), at: Timestamp.now(), by: "App", kind: "event" });
 
 exports.onNews = onDocumentCreated("news/{id}", async event => {
   const n = event.data?.data(); if (!n) return;
@@ -57,25 +59,28 @@ exports.onNews = onDocumentCreated("news/{id}", async event => {
 
 exports.onTrainingCreated = onDocumentCreated("trainings/{id}", async event => {
   const t = event.data?.data(); if (!t || t.cancelled || ms(t.start) < Date.now()) return;
-  await post(`Neuer Termin: ${kindOf(t)}`, `${when(t)}. Du bist automatisch dabei – absagen bis 24 Stunden vorher.`, "#training", "t-" + event.params.id);
+  await post(`Neuer Termin: ${kindOf(t)}`, `${when(t)}. Du bist automatisch dabei – absagen bis 24 Stunden vorher.`, "#training", "t-" + event.params.id, event.params.id);
 });
 
 exports.onTrainingUpdated = onDocumentUpdated("trainings/{id}", async event => {
   const b = event.data?.before?.data(), a = event.data?.after?.data(); if (!b || !a) return;
   if (ms(a.start) + 3 * 3600e3 < Date.now()) return;   // past appointments (results, no-shows) stay quiet
   const id = event.params.id;
-  if (!b.cancelled && a.cancelled) return post(`${kindOf(a)} fällt aus`, `${when(a)} fällt aus.`, "#training", "t-" + id);
-  if (b.cancelled && !a.cancelled) return post(`${kindOf(a)} findet doch statt`, `${when(a)} findet doch statt.`, "#training", "t-" + id);
+  if (!b.cancelled && a.cancelled) return post(`${kindOf(a)} fällt aus`, `${when(a)} fällt aus.`, "#training", "t-" + id, id);
+  if (b.cancelled && !a.cancelled) return post(`${kindOf(a)} findet doch statt`, `${when(a)} findet doch statt.`, "#training", "t-" + id, id);
   if (a.cancelled) return;
   if (isTeams(a.teams) && (!isTeams(b.teams) || a.teams.at !== b.teams.at))
-    return post(isTeams(b.teams) ? "Teams geändert" : "Teams sind eingeteilt", `${kindOf(a)} ${when(a)}: Schau nach, in welchem Team du spielst.`, "#training", "teams-" + id);
+    return post(isTeams(b.teams) ? "Teams geändert" : "Teams sind eingeteilt", `${kindOf(a)} ${when(a)}: Schau nach, in welchem Team du spielst.`, "#training", "teams-" + id, id);
   if (isLines(a.lines) && (!isLines(b.lines) || a.lines.at !== b.lines.at))
-    return post(isLines(b.lines) ? "Linien geändert" : "Linien sind eingeteilt", `${kindOf(a)} ${when(a)}: Schau nach, in welcher Linie du spielst.`, "#training", "lines-" + id);
+    return post(isLines(b.lines) ? "Linien geändert" : "Linien sind eingeteilt", `${kindOf(a)} ${when(a)}: Schau nach, in welcher Linie du spielst.`, "#training", "lines-" + id, id);
 });
 
 // Every 15 minutes: remind once when the answer deadline ends within the next 3 hours
 exports.deadlineReminder = onSchedule({ schedule: "every 15 minutes", timeZone: TZ }, async () => {
   const now = Date.now();
+  // Tidy up the Team-Info feed (see cleanup.js)
+  try { const n = await cleanupNews(db, now); if (n) logger.info(`team info: ${n} old entries removed`); }
+  catch (e) { logger.error("team info cleanup failed", e); }
   const snap = await db.collection("trainings")
     .where("start", ">", Timestamp.fromMillis(now + DEADLINE_MS))
     .where("start", "<=", Timestamp.fromMillis(now + DEADLINE_MS + REMIND_BEFORE_MS)).get();
