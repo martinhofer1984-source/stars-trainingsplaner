@@ -288,7 +288,7 @@ const POS = {G:"Tor", D:"Verteidigung", O:"Sturm"};
 const POS_SHORT = {G:"T", D:"V", O:"S"};
 const SCALE = 4;                 // 4 points of average difference = 10:1 expected odds
 const DEADLINE_MS = 24*3600e3;   // players can answer up to 24 h before the start (enforced in firestore.rules)
-const S = {user:null, authKnown:false, denied:false, role:null, me:null, players:{}, roster:{}, trainings:[], allTrainings:[], past:[], sel:null, drafts:{},
+const S = {user:null, authKnown:false, denied:false, role:null, me:null, players:{}, roster:{}, trainings:[], allTrainings:[], past:[], sel:null, drafts:{}, members:{},
            loaded:{players:false, roster:false, trainings:false}, sort:{key:"name",dir:1}, statSort:{key:"rate",dir:-1}};
 let pendingRender = false;
 
@@ -358,7 +358,7 @@ async function initStore(){
 }
 
 function resetData(){
-  S.denied=false; S.role=null; S.me=null; S.players={}; S.roster={}; S.trainings=[]; S.allTrainings=[]; S.past=[]; S.sel=null; S.drafts={};
+  S.denied=false; S.role=null; S.me=null; S.players={}; S.roster={}; S.trainings=[]; S.allTrainings=[]; S.past=[]; S.sel=null; S.drafts={}; S.members={};
   S.loaded={players:false, roster:false, trainings:false};
   document.body.classList.remove("is-player");
 }
@@ -404,6 +404,9 @@ function watchData(){
   // Team drafts stay with the trainers until they are published into the training
   if (isTrainer()) roleUnsubs.push(F.onSnapshot(F.collection(db, "drafts"), s => {
     S.drafts = {}; s.forEach(d => S.drafts[d.id] = d.data()); render();
+  }, dbFail));
+  if (isTrainer()) roleUnsubs.push(F.onSnapshot(F.collection(db, "members"), s => {
+    S.members = {}; s.forEach(d => S.members[d.id] = d.data());
   }, dbFail));
   if (isTrainer()) roleUnsubs.push(F.onSnapshot(F.collection(db, "players"), s => {
     S.players = {}; s.forEach(d => S.players[d.id] = {id:d.id, ...d.data()});
@@ -458,16 +461,20 @@ function syncRoster(){
     .finally(() => { rosterSync = null; });
 }
 
-// Adds to a batch what it takes to move a player's access from one address to another
+// Addresses of other trainers: their members entry is managed in the Firebase console only
+const isOtherTrainer = email => !!email && email !== S.me?.email && !!S.members[email] && (S.members[email].role || "trainer") !== "player";
+
+// Adds to a batch what it takes to move a player's access from one address to another.
+// Another trainer's entry is never touched (the rules forbid it); only the address on the player is kept.
 function accessOps(b, pid, name, oldEmail, newEmail){
   const mine = S.me.email;
   if (oldEmail && oldEmail !== newEmail) {
     if (oldEmail === mine) b.update(mRef(mine), {playerId: fb.F.deleteField()});
-    else b.delete(mRef(oldEmail));
+    else if (!isOtherTrainer(oldEmail)) b.delete(mRef(oldEmail));
   }
   if (newEmail) {
     if (newEmail === mine) b.update(mRef(mine), {playerId: pid});
-    else b.set(mRef(newEmail), {name, role:"player", playerId:pid});
+    else if (!isOtherTrainer(newEmail)) b.set(mRef(newEmail), {name, role:"player", playerId:pid});
   }
 }
 
@@ -494,7 +501,12 @@ const api = {
     b.update(pRef(id), {email: email || fb.F.deleteField()});
     b.set(rRef(id), rosterOf({...p, email}));
     fire(b.commit());
-    status(email ? `${p.name} kann sich jetzt mit ${email} anmelden.` : `Zugang von ${p.name} entfernt.`);
+    if (isOtherTrainer(email)) {
+      const linked = S.members[email].playerId === id;
+      status(linked ? `${email} ist Trainer und mit ${p.name} verknüpft.`
+        : `${email} ist Trainer. Damit er für ${p.name} zu- und absagen kann, in der Firebase-Konsole bei members/${email} das Feld playerId auf „${id}“ setzen.`, !linked);
+    }
+    else status(email ? `${p.name} kann sich jetzt mit ${email} anmelden.` : `Zugang von ${p.name} entfernt.`);
     return true;
   },
   delPlayer(id){
