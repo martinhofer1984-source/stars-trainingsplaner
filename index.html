@@ -1113,7 +1113,7 @@ function renderNews(){
 
 /* ---------- push notifications ---------- */
 // Public key of the web push certificate (Firebase console > project settings > Cloud Messaging)
-const VAPID_KEY = "";
+const VAPID_KEY = "BH7AObUIV_M1kHbCmrgeRauI6fRHgwo8UZ3G8R_vtQjS8bW0onq-Uu-ZYgLqyvOyZcfNXR0UpCeb6Eig8X9i72Y";
 const TOKEN_KEY = "stars-push-token";
 const pushSupported = () => "Notification" in window && "serviceWorker" in navigator && "PushManager" in window;
 const isIos = () => /iphone|ipad|ipod/i.test(navigator.userAgent);
