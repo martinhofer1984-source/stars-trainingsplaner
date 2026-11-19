@@ -29,6 +29,11 @@ service cloud.firestore {
     function isTrainer() { return signedIn() && me().get('role', 'trainer') == 'trainer'; }
     function myPlayerId() { return me().get('playerId', ''); }
 
+    // Optional jersey number 0-99
+    function validNumber(d) {
+      return !('number' in d) || (d.number is int && d.number >= 0 && d.number <= 99);
+    }
+
     match /members/{email} {
       allow read: if isTrainer()
         || (request.auth != null && request.auth.token.email is string && email == myEmail());
@@ -54,7 +59,8 @@ service cloud.firestore {
     match /players/{playerId} {
       allow read, delete: if isTrainer();
       allow create, update: if isTrainer()
-        && request.resource.data.keys().hasOnly(['name', 'pos', 'rating', 'active', 'email'])
+        && request.resource.data.keys().hasOnly(['name', 'pos', 'rating', 'active', 'email', 'number'])
+        && validNumber(request.resource.data)
         && request.resource.data.name is string && request.resource.data.name.size() <= 80
         && request.resource.data.pos in ['G', 'D', 'O']
         && request.resource.data.rating is number
@@ -67,7 +73,8 @@ service cloud.firestore {
       allow read: if isMember();
       allow delete: if isTrainer();
       allow create, update: if isTrainer()
-        && request.resource.data.keys().hasOnly(['name', 'pos', 'active', 'access'])
+        && request.resource.data.keys().hasOnly(['name', 'pos', 'active', 'access', 'number'])
+        && validNumber(request.resource.data)
         && request.resource.data.name is string && request.resource.data.name.size() <= 80
         && request.resource.data.pos in ['G', 'D', 'O']
         && request.resource.data.active is bool

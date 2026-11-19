@@ -90,6 +90,8 @@ th{font:600 11.5px var(--body);letter-spacing:.07em;text-transform:uppercase;col
 td{padding:6px 8px;border-bottom:1px solid var(--line);vertical-align:middle}
 td.num,th.num{text-align:right}
 td input.rating{width:70px;text-align:right}
+td input.nr{width:56px;text-align:right}
+.nr{font:700 12px var(--body);color:var(--muted);font-variant-numeric:tabular-nums;margin-right:4px}
 td input.pname{width:100%;min-width:140px}
 tr.inactive td{opacity:.5}
 .empty{padding:20px;text-align:center;color:var(--muted)}
@@ -229,6 +231,7 @@ td input.email{width:220px}
     <h2>Spieler <small id="playerCount"></small></h2>
     <div class="row">
       <input id="newName" placeholder="Name" aria-label="Name des neuen Spielers">
+      <input id="newNumber" type="number" min="0" max="99" step="1" placeholder="Nr." aria-label="Spielernummer" style="width:70px">
       <select id="newPos" aria-label="Position"><option value="O">Sturm</option><option value="D">Verteidigung</option><option value="G">Tor</option></select>
       <input id="newRating" type="number" min="1" max="10" step="0.1" value="5" aria-label="Stärke" style="width:80px">
       <button id="btnAdd">Spieler anlegen</button>
@@ -408,7 +411,12 @@ function watchData(){
   }, dbFail));
 }
 
-const rosterOf = p => ({name:p.name, pos:p.pos, active:p.active!==false, access:!!p.email});
+// Jersey number 0-99, optional
+const validNr = n => Number.isInteger(n) && n >= 0 && n <= 99;
+const rosterOf = p => ({name:p.name, pos:p.pos, active:p.active!==false, access:!!p.email, ...(validNr(p.number) ? {number:p.number} : {})});
+const nrOf = p => validNr(p?.number) ? p.number : null;
+const nrHTML = p => nrOf(p) !== null ? `<span class="nr">${nrOf(p)}</span>` : "";
+const nrText = p => nrOf(p) !== null ? `#${nrOf(p)} ` : "";
 const pRef = id => fb.F.doc(fb.db, "players", id);
 const rRef = id => fb.F.doc(fb.db, "roster", id);
 const mRef = email => fb.F.doc(fb.db, "members", email);
@@ -441,7 +449,7 @@ function syncRoster(){
   const b = batcher();
   for (const p of Object.values(S.players)) {
     const want = rosterOf(p), have = S.roster[p.id];
-    if (!have || have.name!==want.name || have.pos!==want.pos || have.active!==want.active || have.access!==want.access) b.set(rRef(p.id), want);
+    if (!have || have.name!==want.name || have.pos!==want.pos || have.active!==want.active || have.access!==want.access || (have.number ?? null)!==(want.number ?? null)) b.set(rRef(p.id), want);
   }
   for (const id of Object.keys(S.roster)) if (!S.players[id]) b.delete(rRef(id));
   if (!b.size) return;
@@ -464,9 +472,9 @@ function accessOps(b, pid, name, oldEmail, newEmail){
 }
 
 const api = {
-  addPlayer(name, pos, rating){
+  addPlayer(name, pos, rating, number){
     let id = slug(name); while (S.players[id]) id += "-2";
-    const p = {name, pos, rating, active:true};
+    const p = {name, pos, rating, active:true, ...(validNr(number) ? {number} : {})};
     const b = batcher(); b.set(pRef(id), p); b.set(rRef(id), rosterOf(p)); fire(b.commit());
   },
   updPlayer(id, patch){
@@ -502,6 +510,7 @@ const api = {
     for (const [id, raw] of Object.entries(players)) {
       const email = validEmail(String(raw.email||"").toLowerCase()) ? String(raw.email).toLowerCase() : "";
       const p = {name:String(raw.name||id).slice(0,80), pos:["G","D","O"].includes(raw.pos)?raw.pos:"O", rating:round2(clamp(+raw.rating||5)), active:raw.active!==false};
+      if (validNr(raw.number)) p.number = raw.number;
       if (email) p.email = email;
       accessOps(b, id, p.name, (S.players[id]?.email||"").toLowerCase(), email);
       b.set(pRef(id), p); b.set(rRef(id), rosterOf(p));
@@ -695,7 +704,7 @@ function teamHTML(cls, label, ids, edit){
   const people = ids.map(id => ({...(S.roster[id]||{}), ...(S.players[id]||{}), id})).filter(p => p.name);
   const head = isTrainer() ? `${people.length} Sp. · Σ ${fmt(sum(people))} · Ø ${fmt(mean(people))}` : `${people.length} Spieler`;
   return `<div class="team ${cls}"><h3>${label}<span>${head}</span></h3>${
-    people.sort((x,y)=>order[x.pos]-order[y.pos]||byName(x,y)).map(p=>`<div class="tp"><span class="pos">${POS_SHORT[p.pos]||"S"}</span><span>${esc(p.name)}</span><span class="q">${isTrainer() ? fmt(+p.rating||5) : ""}</span>${
+    people.sort((x,y)=>order[x.pos]-order[y.pos]||byName(x,y)).map(p=>`<div class="tp"><span class="pos">${POS_SHORT[p.pos]||"S"}</span><span>${nrHTML(p)}${esc(p.name)}</span><span class="q">${isTrainer() ? fmt(+p.rating||5) : ""}</span>${
       edit ? `<button data-move="${esc(p.id)}" aria-label="${esc(p.name)} ins andere Team">${cls==="a"?"→":"←"}</button>` : "<span></span>"}</div>`).join("")
   }</div>`;
 }
@@ -773,7 +782,7 @@ function lineHTML(key, ids, ln, edit){
   const opts = id => [...slotKeys(ln), ""].map(k =>
     `<option value="${k}" ${(ln.slot[id]||"")===k ? "selected" : ""}>${k ? slotShort(k) : "–"}</option>`).join("");
   return `<div class="team l${key ? "" : " off"}"><h3>${key ? slotName(key) : "Nicht eingeteilt"}<span>${head}</span></h3>${
-    people.map(p=>`<div class="tp"><span class="pos">${POS_SHORT[p.pos]||"S"}</span><span>${esc(p.name)}</span><span class="q">${isTrainer() ? fmt(+p.rating||5) : ""}</span>${
+    people.map(p=>`<div class="tp"><span class="pos">${POS_SHORT[p.pos]||"S"}</span><span>${nrHTML(p)}${esc(p.name)}</span><span class="q">${isTrainer() ? fmt(+p.rating||5) : ""}</span>${
       edit ? `<select data-slot="${esc(p.id)}" aria-label="${esc(p.name)} einteilen">${opts(p.id)}</select>` : "<span></span>"}</div>`).join("") || `<span class="muted">–</span>`
   }</div>`;
 }
@@ -830,7 +839,7 @@ function cleanLines(t, ln){
 function linesText(t, ln){
   const rows = slotKeys(ln).map(k => {
     const ps = Object.keys(ln.slot).filter(id => ln.slot[id] === k).map(person).filter(p => p.name).sort(byName);
-    return ps.length ? `${slotName(k)}: ${ps.map(p => p.name).join(", ")}` : "";
+    return ps.length ? `${slotName(k)}: ${ps.map(p => nrText(p) + p.name).join(", ")}` : "";
   }).filter(Boolean);
   return `${kindOf(t)} ${dDay(t.start)} ${tRange(t)} Uhr${t.place ? " – "+t.place : ""}\n${rows.join("\n")}`;
 }
@@ -841,11 +850,12 @@ function renderPlayers(){
   $("#playerCount").textContent = `${all.filter(p=>p.active!==false).length} aktiv · ${all.filter(p=>p.email).length} mit Zugang`;
   if (!all.length) { $("#playerTable").innerHTML = `<div class="empty">${!S.loaded.players ? "Spieler werden geladen …" : "Noch keine Spieler angelegt."}</div>`; return; }
   const {key, dir} = S.sort;
-  const rows = all.slice().sort((a,b)=> (a.active===false)-(b.active===false) || (key==="name" ? byName(a,b) : key==="pos" ? "GDO".indexOf(a.pos)-"GDO".indexOf(b.pos) : (+a.rating||0)-(+b.rating||0)) * dir);
+  const rows = all.slice().sort((a,b)=> (a.active===false)-(b.active===false) || (key==="name" ? byName(a,b) : key==="number" ? (nrOf(a) ?? 999)-(nrOf(b) ?? 999) : key==="pos" ? "GDO".indexOf(a.pos)-"GDO".indexOf(b.pos) : (+a.rating||0)-(+b.rating||0)) * dir);
   const th = (k,l,c="") => `<th class="${c}" data-sort="${k}" aria-sort="${key===k?(dir>0?"ascending":"descending"):"none"}">${l}${key===k?(dir>0?" ▲":" ▼"):""}</th>`;
-  $("#playerTable").innerHTML = `<table><thead><tr>${th("name","Name")}${th("pos","Position")}${th("rating","Stärke","num")}<th>Zugang (E-Mail)</th><th>Aktiv</th><th><span hidden>Löschen</span></th></tr></thead><tbody>${
+  $("#playerTable").innerHTML = `<table><thead><tr>${th("name","Name")}${th("number","Nr.","num")}${th("pos","Position")}${th("rating","Stärke","num")}<th>Zugang (E-Mail)</th><th>Aktiv</th><th><span hidden>Löschen</span></th></tr></thead><tbody>${
     rows.map(p=>`<tr class="${p.active===false?"inactive":""}" data-pid="${esc(p.id)}">
       <td><input class="pname" data-f="name" value="${esc(p.name)}" aria-label="Name"></td>
+      <td class="num"><input class="nr" data-f="number" type="number" min="0" max="99" step="1" value="${nrOf(p) ?? ""}" placeholder="–" aria-label="Nummer ${esc(p.name)}"></td>
       <td><select data-f="pos" aria-label="Position ${esc(p.name)}">${["G","D","O"].map(k=>`<option value="${k}" ${p.pos===k?"selected":""}>${POS[k]}</option>`).join("")}</select></td>
       <td class="num"><input class="rating" data-f="rating" type="number" min="1" max="10" step="0.1" value="${round2(+p.rating||5)}" aria-label="Stärke ${esc(p.name)}"></td>
       <td><input class="email" data-f="email" type="email" value="${esc(p.email||"")}" placeholder="Gast – kein Zugang" aria-label="Zugang ${esc(p.name)}"></td>
@@ -918,7 +928,7 @@ function renderKonto(){
 
 function teamsText(t, tm){
   const name = id => S.roster[id]?.name || S.players[id]?.name;
-  const l = ids => ids.map(id => ({id, n:name(id), p:(S.roster[id]||S.players[id]||{}).pos})).filter(x=>x.n).map(x=>`${x.n} (${POS_SHORT[x.p]||"S"})`).join(", ");
+  const l = ids => ids.map(id => ({id, n:name(id), r:(S.roster[id]||S.players[id]||{})})).filter(x=>x.n).map(x=>`${nrText(x.r)}${x.n} (${POS_SHORT[x.r.pos]||"S"})`).join(", ");
   return `${kindOf(t)} ${dDay(t.start)} ${tRange(t)} Uhr${t.place ? " – "+t.place : ""}\nTeam A: ${l(tm.A)}\nTeam B: ${l(tm.B)}`;
 }
 async function copy(text, btn){
@@ -973,8 +983,10 @@ document.addEventListener("click", e => {
     }
     else if (t.id==="btnAdd") {
       const name=$("#newName").value.trim(); if(!name){ status("Bitte einen Namen eingeben.", true); return; }
-      api.addPlayer(name, $("#newPos").value, round2(clamp(+$("#newRating").value||5)));
-      $("#newName").value=""; status(`${name} angelegt.`);
+      const nr = $("#newNumber").value.trim() === "" ? null : Number($("#newNumber").value);
+      if (nr !== null && !validNr(nr)) { status("Die Nummer muss eine ganze Zahl von 0 bis 99 sein.", true); return; }
+      api.addPlayer(name, $("#newPos").value, round2(clamp(+$("#newRating").value||5)), nr);
+      $("#newName").value=""; $("#newNumber").value=""; status(`${name} angelegt.`);
     }
     else if (t.dataset.del) confirmBtn(t, () => {
       const id = t.dataset.del, name = S.players[id]?.name || "Spieler";
@@ -1013,6 +1025,15 @@ document.addEventListener("change", e => {
     api.setLines(tg.id, cleanLines(tg, {...draftLines(tg), d: +$("#lineD").value || 2, o: +$("#lineO").value || 3})); return;
   } const tr = el.closest("tr[data-pid]"); if (!tr || !el.dataset.f) return;
   const id = tr.dataset.pid, f = el.dataset.f;
+  if (f==="number") {
+    const raw = el.value.trim();
+    if (raw === "") { api.updPlayer(id, {number: fb.F.deleteField()}); return; }
+    const n = Number(raw);
+    if (!validNr(n)) { status("Die Nummer muss eine ganze Zahl von 0 bis 99 sein.", true); el.value = nrOf(S.players[id]) ?? ""; return; }
+    const twin = Object.values(S.players).find(o => o.id !== id && o.number === n);
+    if (twin) status(`Nummer ${n} hat auch ${twin.name}.`, true);
+    api.updPlayer(id, {number: n}); return;
+  }
   if (f==="email") { if (!api.setAccess(id, el.value.trim().toLowerCase())) el.value = S.players[id].email || ""; return; }
   let v;
   if (f==="rating") v = round2(clamp(+el.value||5));
