@@ -89,6 +89,15 @@ label.inline{display:flex;gap:6px;align-items:center;font-size:13.5px;color:var(
 .team.l h3{color:var(--ink)}
 .team.l.off{border-style:dashed}
 .tp select{padding:2px 6px;font-size:13px}
+.plist{display:grid;gap:8px}
+.pitem{border:1px solid var(--line);border-radius:10px;padding:10px 12px;background:var(--surface-2)}
+.pitem.inactive{opacity:.55}
+.phead{display:flex;align-items:center;gap:12px}
+.pinfo{flex:1;min-width:0;display:grid;gap:2px}
+.pinfo span{color:var(--muted);font-size:13.5px}
+.pres{font:700 20px var(--display);font-variant-numeric:tabular-nums;min-width:40px;text-align:center}
+.pedit{margin-top:12px;padding-top:12px;border-top:1px solid var(--line);display:grid;gap:8px}
+.pedit .row.result{align-items:center;flex-wrap:wrap;gap:8px}
 .balance{font-variant-numeric:tabular-nums;font-size:13.5px}
 .tablewrap{overflow-x:auto}
 table{border-collapse:collapse;width:100%;font-size:14px;font-variant-numeric:tabular-nums}
@@ -115,6 +124,7 @@ body.ro .write{display:none!important}
   <nav id="mainNav" aria-label="Bereiche">
     <a href="#training" data-view="training">Termine</a>
     <a href="#spieler" data-view="spieler" class="trainer-only">Spieler</a>
+    <a href="#ergebnisse" data-view="ergebnisse" class="trainer-only">Ergebnisse</a>
     <a href="#statistik" data-view="statistik" class="trainer-only">Statistik</a>
     <a href="#konto" data-view="konto">Konto</a>
   </nav>
@@ -259,12 +269,20 @@ td input.email{width:220px}
           <option value="all">Alle</option>
         </select></label>
     </div>
-    <p class="muted">Gezählt werden vergangene Termine, die nicht ausgefallen sind. Spieler mit Zugang gelten als dabei, wenn sie nicht abgesagt haben – außer du markierst sie unten bei „Vergangene Termine“ als nicht erschienen. S/U/N sind Siege, Unentschieden und Niederlagen: bei Spielen für alle, die da waren, bei Trainings nach den freigegebenen Teams. Nur für Trainer sichtbar.</p>
+    <p class="muted">Gezählt werden vergangene Termine, die nicht ausgefallen sind. Spieler mit Zugang gelten als dabei, wenn sie nicht abgesagt haben – außer du markierst sie im Bereich „Ergebnisse“ als nicht erschienen. S/U/N sind Siege, Unentschieden und Niederlagen: bei Spielen für alle, die da waren, bei Trainings nach den freigegebenen Teams. Nur für Trainer sichtbar.</p>
     <div class="tablewrap" id="statTable"></div>
   </section>
 
-  <section data-section="statistik" class="panel">
-    <h2>Vergangene Termine <small id="pastCount"></small></h2>
+  <section data-section="ergebnisse" class="panel">
+    <h2>Ergebnisse <small id="pastCount"></small></h2>
+    <div class="row">
+      <label class="inline" for="resFilter">Anzeigen
+        <select id="resFilter">
+          <option value="open" selected>Offen – noch kein Ergebnis</option>
+          <option value="all">Alle vergangenen Termine</option>
+        </select></label>
+    </div>
+    <p class="muted">Nach dem Termin „Erfassen“ tippen: Ergebnis eintragen und markieren, wer trotz Zusage nicht gekommen ist. „Fertig“ speichert. Nur für Trainer sichtbar.</p>
     <div class="tablewrap" id="pastTable"></div>
   </section>
 
@@ -646,13 +664,14 @@ function view(){
   const h = location.hash.slice(1);
   if (h === "spieler" && isTrainer()) return "spieler";
   if (h === "statistik" && isTrainer()) return "statistik";
+  if (h === "ergebnisse" && isTrainer()) return "ergebnisse";
   if (h === "konto") return "konto";
   return "training";
 }
 
 function render(){
   const v = view();
-  $(".menu").hidden = !["training","spieler","statistik","konto"].includes(v);
+  $(".menu").hidden = !["training","spieler","ergebnisse","statistik","konto"].includes(v);
   const cur = document.querySelector(`nav a[data-view="${v}"]`); if (cur) $("#menuLabel").textContent = cur.textContent;
   document.querySelectorAll("nav a").forEach(a => { if (a.dataset.view===v) a.setAttribute("aria-current","page"); else a.removeAttribute("aria-current"); });
   document.querySelectorAll("[data-section]").forEach(s => s.hidden = s.dataset.section !== v);
@@ -660,6 +679,7 @@ function render(){
   if (v==="training") { renderTrainings(); renderDetail(); if (isTrainer()) renderPresent(); renderTeams(); renderLines(); }
   if (v==="spieler") { if ($("#playerTable").contains(document.activeElement)) pendingRender = true; else renderPlayers(); }
   if (v==="statistik") renderStats();
+  if (v==="ergebnisse") renderResults();
   if (v==="konto") renderKonto();
 }
 
@@ -960,9 +980,9 @@ function resultEditor(t){
   const r = S.resDraft?.id === t.id ? S.resDraft : stored;
   const [la, lb] = game ? ["Stars", "Gegner"] : ["Team A", "Team B"];
   const hint = !game && !isTeams(t.teams) ? `<p class="note warn">Für dieses Training wurden keine Teams freigegeben – das Ergebnis zählt deshalb für keinen Spieler.</p>` : "";
-  return `<div class="row result"><b>Ergebnis</b> ${la}
-      <input type="number" min="0" max="99" step="1" data-resa data-tid="${esc(t.id)}" value="${r ? r.a : ""}" aria-label="Tore ${la}" style="width:64px"> :
-      <input type="number" min="0" max="99" step="1" data-resb data-tid="${esc(t.id)}" value="${r ? r.b : ""}" aria-label="Tore ${lb}" style="width:64px"> ${lb}
+  return `<div class="row result"><span>${la}</span>
+      <input type="number" min="0" max="99" step="1" data-resa data-tid="${esc(t.id)}" value="${r ? r.a : ""}" aria-label="Tore ${la}" style="width:52px"> :
+      <input type="number" min="0" max="99" step="1" data-resb data-tid="${esc(t.id)}" value="${r ? r.b : ""}" aria-label="Tore ${lb}" style="width:52px"> <span>${lb}</span>
     </div><p class="muted">„Fertig“ speichert Ergebnis und Anwesenheit. Beide Felder leer = kein Ergebnis.</p>${hint}`;
 }
 
@@ -997,21 +1017,31 @@ function renderStats(){
       rows.map(x => `<tr class="${x.active ? "" : "inactive"}"><td>${esc(x.name)}</td><td>${POS[x.pos]||""}</td><td class="num">${x.tr}</td><td class="num">${x.gm}</td><td class="num">${x.ns || ""}</td><td class="num">${x.w}</td><td class="num">${x.d}</td><td class="num">${x.l}</td><td class="num"><b>${pct(x.rate)}</b></td></tr>`).join("")
     }</tbody></table>`;
   }
-  const past = S.past.filter(t => t.start >= statFrom($("#statRange").value));
-  $("#pastCount").textContent = past.length ? String(past.length) : "";
-  $("#pastTable").innerHTML = !past.length ? `<div class="empty">Keine vergangenen Termine im gewählten Zeitraum.</div>`
-    : `<table><thead><tr><th>Datum</th><th>Art</th><th>Zeit</th><th>Ort</th><th class="num">Da</th><th class="num">Ergebnis</th><th></th></tr></thead><tbody>${
-      past.map(t => {
+}
+
+// Past appointments with result and attendance; "open" shows held ones without a result yet
+const isOpenResult = t => !t.cancelled && !validResult(t.result);
+function renderResults(){
+  const onlyOpen = $("#resFilter").value === "open";
+  const nOpen = S.past.filter(isOpenResult).length;
+  const past = S.past.filter(t => !onlyOpen || isOpenResult(t) || t.id === S.openPast);
+  $("#pastCount").textContent = nOpen ? `${nOpen} offen` : "";
+  if (!S.loaded.trainings) { $("#pastTable").innerHTML = `<div class="empty">Termine werden geladen …</div>`; return; }
+  $("#pastTable").innerHTML = !past.length ? `<div class="empty">${onlyOpen ? "Alles eingetragen – kein Termin ohne Ergebnis." : "Noch keine vergangenen Termine."}</div>`
+    : `<div class="plist">${past.map(t => {
         const ins = attendees(t), ns = ins.filter(r => noShows(t).includes(r.id)).length, open = S.openPast === t.id;
+        const year = new Date(t.start).getFullYear() !== new Date().getFullYear() ? new Date(t.start).getFullYear() : "";
         const res = validResult(t.result) ? `${t.result.a}:${t.result.b}` : "–";
-        const row = `<tr class="${t.cancelled ? "inactive" : ""}"><td>${dDay(t.start)}${new Date(t.start).getFullYear() !== new Date().getFullYear() ? new Date(t.start).getFullYear() : ""}</td><td>${kindOf(t)}</td><td>${tRange(t)}</td><td>${esc(t.place||"")}</td><td class="num">${t.cancelled ? "fiel aus" : `${ins.length - ns}${ns ? ` <small>(${ns} n. e.)</small>` : ""}`}</td><td class="num">${t.cancelled ? "" : res}</td><td>${
-          t.cancelled ? "" : `<button data-nsopen="${esc(t.id)}" aria-expanded="${open}">${open ? "Fertig" : (validResult(t.result) || ns) ? "Bearbeiten" : "Erfassen"}</button>`}</td></tr>`;
-        if (!open || t.cancelled) return row;
-        return row + `<tr><td colspan="7">${resultEditor(t)}<p class="muted">Anwesenheit: angetippt = war da. Wer zugesagt hat, aber nicht gekommen ist, hier antippen.</p><div class="chips">${
-          ins.map(r => `<button class="chip${r.access ? "" : " guest"}" data-noshow="${esc(r.id)}" data-tid="${esc(t.id)}" aria-pressed="${!noShows(t).includes(r.id)}">${esc(r.name)}</button>`).join("") || `<span class="muted">Niemand hatte zugesagt.</span>`
-        }</div></td></tr>`;
-      }).join("")
-    }</tbody></table>`;
+        const info = [tRange(t) + " Uhr", t.place ? esc(t.place) : "", t.cancelled ? "fiel aus" : `${ins.length - ns} da${ns ? ` (${ns} n. e.)` : ""}`].filter(Boolean).join(" · ");
+        return `<div class="pitem${t.cancelled ? " inactive" : ""}">
+          <div class="phead">
+            <div class="pinfo"><b>${dDay(t.start)}${year} · ${kindOf(t)}</b><span>${info}</span></div>
+            ${t.cancelled ? "" : `<div class="pres">${res}</div><button data-nsopen="${esc(t.id)}" aria-expanded="${open}" ${open ? 'class="primary"' : ""}>${open ? "Fertig" : validResult(t.result) || ns ? "Bearbeiten" : "Erfassen"}</button>`}
+          </div>${open && !t.cancelled ? `<div class="pedit">${resultEditor(t)}<p class="muted">Anwesenheit: angetippt = war da. Wer zugesagt hat, aber nicht gekommen ist, hier antippen.</p><div class="chips">${
+            ins.map(r => `<button class="chip${r.access ? "" : " guest"}" data-noshow="${esc(r.id)}" data-tid="${esc(t.id)}" aria-pressed="${!noShows(t).includes(r.id)}">${esc(r.name)}</button>`).join("") || `<span class="muted">Niemand hatte zugesagt.</span>`
+          }</div></div>` : ""}
+        </div>`;
+      }).join("")}</div>`;
 }
 
 function renderKonto(){
@@ -1090,7 +1120,7 @@ document.addEventListener("click", e => {
     });
     else if (t.dataset.nsopen) {
       if (S.openPast && !saveOpenResult()) return;
-      S.openPast = S.openPast === t.dataset.nsopen ? null : t.dataset.nsopen; S.resDraft = null; renderStats();
+      S.openPast = S.openPast === t.dataset.nsopen ? null : t.dataset.nsopen; S.resDraft = null; renderResults();
     }
     else if (t.dataset.noshow) {
       const pt = S.past.find(x => x.id === t.dataset.tid); if (!pt) return;
@@ -1114,6 +1144,7 @@ document.addEventListener("click", e => {
 document.addEventListener("change", e => {
   const el = e.target;
   if (el.id === "statRange") { renderStats(); return; }
+  if (el.id === "resFilter") { closePast(); renderResults(); return; }
   const tg = selTraining();
   if (el.dataset.slot && tg && draftLines(tg)) {
     const ln = cleanLines(tg, draftLines(tg));
@@ -1162,7 +1193,7 @@ window.addEventListener("hashchange", () => { closePast(); closeMenu(); render()
 window.addEventListener("online", render);
 window.addEventListener("offline", render);
 // Re-evaluate deadlines now and then while the app stays open
-setInterval(() => { splitTrainings(); if (view()==="training" || view()==="statistik") render(); }, 60000);
+setInterval(() => { splitTrainings(); if (["training","statistik","ergebnisse"].includes(view())) render(); }, 60000);
 
 /* ---------- backup ---------- */
 let pendingImport = null;
