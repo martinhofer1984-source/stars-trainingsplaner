@@ -337,6 +337,21 @@ td input.email{width:220px}
   </section>
 
   <section data-section="kasse" class="panel">
+    <h2>Strafen <small id="fineCount"></small></h2>
+    <details class="new trainer-only" id="newFine">
+      <summary>Strafe vergeben</summary>
+      <div class="form">
+        <label for="fnPlayer">Spieler<select id="fnPlayer"></select></label>
+        <label for="fnReason">Grund<input id="fnReason" maxlength="200" placeholder="z. B. Trikot vergessen"></label>
+        <label for="fnAmount">Betrag (€)<input id="fnAmount" type="number" min="0.5" max="1000" step="0.5" placeholder="5"></label>
+      </div>
+      <div class="row" style="margin-top:10px"><button id="btnFine" class="primary">Strafe vergeben</button></div>
+      <p class="muted">Die Strafe erscheint beim Spieler unter Konto als offener Posten und wird hier unter „Posten“ abgehakt, sobald sie bezahlt ist.</p>
+    </details>
+    <div id="fineList" class="plist"></div>
+  </section>
+
+  <section data-section="kasse" class="panel">
     <h2>Zusatzkosten bei Spielen</h2>
     <p class="muted">Betrag pro Spieler, den jeder zahlt, der beim Spiel dabei war (z. B. Eis, Schiri). Leer = keine Zusatzkosten.</p>
     <div id="gameCosts" class="plist"></div>
@@ -387,7 +402,7 @@ const POS = {G:"Tor", D:"Verteidigung", O:"Sturm"};
 const POS_SHORT = {G:"T", D:"V", O:"S"};
 const SCALE = 4;                 // 4 points of average difference = 10:1 expected odds
 const DEADLINE_MS = 24*3600e3;   // players can answer up to 24 h before the start (enforced in firestore.rules)
-const S = {user:null, authKnown:false, denied:false, role:null, me:null, players:{}, roster:{}, trainings:[], allTrainings:[], past:[], sel:null, drafts:{}, members:{}, news:[], kasse:null, billing:{},
+const S = {user:null, authKnown:false, denied:false, role:null, me:null, players:{}, roster:{}, trainings:[], allTrainings:[], past:[], sel:null, drafts:{}, members:{}, news:[], kasse:null, billing:{}, fines:[],
            loaded:{players:false, roster:false, trainings:false}, sort:{key:"name",dir:1}, statSort:{key:"rate",dir:-1}};
 let pendingRender = false;
 
@@ -457,7 +472,7 @@ async function initStore(){
 }
 
 function resetData(){
-  S.denied=false; S.role=null; S.me=null; S.players={}; S.roster={}; S.trainings=[]; S.allTrainings=[]; S.past=[]; S.sel=null; S.drafts={}; S.members={}; S.news=[]; S.kasse=null; S.billing={};
+  S.denied=false; S.role=null; S.me=null; S.players={}; S.roster={}; S.trainings=[]; S.allTrainings=[]; S.past=[]; S.sel=null; S.drafts={}; S.members={}; S.news=[]; S.kasse=null; S.billing={}; S.fines=[];
   S.loaded={players:false, roster:false, trainings:false};
   document.body.classList.remove("is-player", "no-kasse");
 }
@@ -505,6 +520,9 @@ function watchData(){
   roleUnsubs.push(F.onSnapshot(F.doc(db, "kasse", "settings"), d => { S.kasse = d.exists() ? d.data() : null; render(); }, kasseFail));
   if (isKasse()) roleUnsubs.push(F.onSnapshot(F.collection(db, "billing"), s => { S.billing = {}; s.forEach(d => S.billing[d.id] = d.data()); render(); }, kasseFail));
   else if (S.me?.playerId) roleUnsubs.push(F.onSnapshot(F.doc(db, "billing", S.me.playerId), d => { S.billing = d.exists() ? {[d.id]: d.data()} : {}; render(); }, kasseFail));
+  const finesOf = s => { S.fines = s.docs.map(d => { const v = d.data(); return {id: d.id, ...v, at: v.at?.toMillis?.() ?? 0}; }); render(); };
+  if (isKasse()) roleUnsubs.push(F.onSnapshot(F.collection(db, "fines"), finesOf, kasseFail));
+  else if (S.me?.playerId) roleUnsubs.push(F.onSnapshot(F.query(F.collection(db, "fines"), F.where("pid", "==", S.me.playerId)), finesOf, kasseFail));
   // Team info: newest first
   roleUnsubs.push(F.onSnapshot(F.query(F.collection(db, "news"), F.orderBy("at", "desc"), F.limit(50)), s => {
     S.news = s.docs.map(d => { const v = d.data(); return {id:d.id, ...v, at: v.at?.toMillis?.() ?? 0}; });
@@ -669,6 +687,11 @@ const api = {
     if (amount > 0) fire(fb.F.setDoc(ref, {gameCost: {[tid]: amount}}, {merge: true}));
     else if (S.kasse?.gameCost?.[tid] !== undefined) fire(fb.F.updateDoc(ref, new fb.F.FieldPath("gameCost", tid), fb.F.deleteField()));
   },
+  addFine(pid, reason, amount){
+    const by = (S.me?.playerId && S.roster[S.me.playerId]?.name) || S.me?.name || "Trainer";
+    fire(fb.F.addDoc(fb.F.collection(fb.db, "fines"), {pid, reason, amount, at: fb.F.Timestamp.now(), by}));
+  },
+  delFine(id){ fire(fb.F.deleteDoc(fb.F.doc(fb.db, "fines", id))); },
   setTariffs(season, startAt, tf){ fire(fb.F.setDoc(fb.F.doc(fb.db, "kasse", "settings"), {startAt, seasons: {[season]: tf}}, {merge: true})); },
   setCashier(pid, email, on){ fire(fb.F.setDoc(mRef(email), {name: S.players[pid]?.name || "", role: on ? "cashier" : "player", playerId: pid})); },
   answer(t, pid, val){ fire(fb.F.updateDoc(tRef(t.id), new fb.F.FieldPath("responses", pid), val)); },
@@ -1225,6 +1248,8 @@ function chargesOf(pid){
       out.push({key: "n:" + t.id, label: `Nicht erschienen: ${when}`, amount: tf.noshow, at: t.start});
     }
   }
+  for (const fi of S.fines)
+    if (fi.pid === pid && +fi.amount > 0) out.push({key: "f:" + fi.id, label: `Strafe: ${fi.reason}`, amount: +fi.amount, at: fi.at});
   return out.filter(c => c.amount > 0).sort((a, b) => a.at - b.at);
 }
 const isPaid = (pid, c) => !!S.billing[pid]?.paid?.[c.key];
@@ -1256,6 +1281,21 @@ function renderKasse(){
         </div>` : ""}
       </div>`;
     }).join("");
+
+  // Fines: form (trainers) and list, newest first
+  const fsel = $("#fnPlayer"), keep = fsel.value;
+  fsel.innerHTML = `<option value="">– Spieler wählen –</option>` + Object.values(S.roster).filter(r => r.active).sort(byName)
+    .map(r => `<option value="${esc(r.id)}">${esc(r.name)}${r.access ? "" : " (Gast)"}</option>`).join("");
+  fsel.value = keep;
+  const fines = S.fines.slice().sort((a, b) => b.at - a.at);
+  $("#fineCount").textContent = fines.length ? String(fines.length) : "";
+  $("#fineList").innerHTML = !fines.length ? `<div class="empty">Noch keine Strafen.</div>`
+    : fines.map(fi => { const paid = !!S.billing[fi.pid]?.paid?.["f:" + fi.id];
+      return `<div class="pitem"><div class="phead">
+        <div class="pinfo"><b>${esc(S.roster[fi.pid]?.name || "Spieler gelöscht")}</b><span>${esc(fi.reason)} · ${fi.at ? dDay(fi.at) : ""}${fi.by ? " · von " + esc(fi.by) : ""}</span></div>
+        <div class="pres${paid ? "" : " due"}">${euro(+fi.amount)}</div>
+        ${isTrainer() ? `<button class="danger" data-finedel="${esc(fi.id)}" aria-label="Strafe löschen">Löschen</button>` : ""}
+      </div><span class="muted">${paid ? "bezahlt" : "offen"}</span></div>`; }).join("");
 
   // Extra costs of games since the start of the cash box (newest first)
   const games = S.allTrainings.filter(t => isGame(t) && !t.cancelled && (start === null || t.start >= start)).sort((a, b) => b.start - a.start).slice(0, 30);
@@ -1482,6 +1522,16 @@ document.addEventListener("click", e => {
     else if (t.dataset.ics) { const x = S.trainings.find(y => y.id === t.dataset.ics); if (x) downloadIcs(x); }
     else if (t.dataset.kopen) { S.openKasse = S.openKasse === t.dataset.kopen ? null : t.dataset.kopen; renderKasse(); }
     else if (t.dataset.payall) { const pid = t.dataset.payall; api.setPaid(pid, openCharges(pid).map(c => c.key), true); status(`${S.roster[pid]?.name || "Spieler"}: alles bezahlt.`); }
+    else if (t.id==="btnFine") {
+      const pid = $("#fnPlayer").value, reason = $("#fnReason").value.trim().slice(0, 200), amount = Math.round(Number($("#fnAmount").value) * 100) / 100;
+      if (!pid) { status("Bitte einen Spieler wählen.", true); return; }
+      if (!reason) { status("Bitte den Grund eingeben.", true); return; }
+      if (!Number.isFinite(amount) || amount <= 0 || amount > 1000) { status("Bitte einen Betrag über 0 bis 1000 € eingeben.", true); return; }
+      api.addFine(pid, reason, amount);
+      $("#fnPlayer").value = ""; $("#fnReason").value = ""; $("#fnAmount").value = ""; $("#newFine").open = false;
+      status(`Strafe für ${S.roster[pid]?.name || "Spieler"}: ${euro(amount)} (${reason}).`);
+    }
+    else if (t.dataset.finedel) confirmBtn(t, () => api.delFine(t.dataset.finedel));
     else if (t.id==="btnTariffs") {
       const num = id => Number($(id).value), vals = {annual: num("#tfAnnual"), training: num("#tfTraining"), student: num("#tfStudent"), noshow: num("#tfNoshow")};
       if (Object.values(vals).some(v => !Number.isFinite(v) || v < 0 || v > 10000) || $("#tfAnnual").value === "") { status("Bitte alle Beträge als Zahl ab 0 eingeben.", true); return; }

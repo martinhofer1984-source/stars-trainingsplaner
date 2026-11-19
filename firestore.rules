@@ -183,6 +183,19 @@ service cloud.firestore {
         && (!('paid' in request.resource.data) || request.resource.data.paid is map);
     }
 
+    // Fines: trainers give and delete them; trainers and the cashier see all, a player only the own
+    match /fines/{id} {
+      allow read: if isKasse() || (isMember() && resource.data.pid == myPlayerId());
+      allow delete: if isTrainer();
+      allow create: if isTrainer()
+        && request.resource.data.keys().hasOnly(['pid', 'reason', 'amount', 'at', 'by'])
+        && request.resource.data.pid is string
+        && request.resource.data.reason is string && request.resource.data.reason.size() > 0 && request.resource.data.reason.size() <= 200
+        && request.resource.data.amount is number && request.resource.data.amount > 0 && request.resource.data.amount <= 1000
+        && request.resource.data.at is timestamp
+        && request.resource.data.by is string;
+    }
+
     // Everything else stays closed.
     match /{document=**} {
       allow read, write: if false;
