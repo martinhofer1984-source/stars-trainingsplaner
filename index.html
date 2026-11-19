@@ -215,7 +215,7 @@ td input.email{width:220px}
         <label for="ntStart">Beginn<input id="ntStart" type="datetime-local"></label>
         <label for="ntPlace">Ort<input id="ntPlace" maxlength="80" placeholder="z. B. Eishalle"></label>
         <label for="ntKind">Art<select id="ntKind"><option value="training" selected>Training</option><option value="game">Spiel</option></select></label>
-        <label for="ntDur">Dauer<select id="ntDur"><option value="60">1 Std.</option><option value="75">1 Std. 15 Min.</option><option value="90" selected>1 Std. 30 Min.</option><option value="105">1 Std. 45 Min.</option><option value="120">2 Std.</option><option value="150">2 Std. 30 Min.</option><option value="180">3 Std.</option></select></label>
+        <label for="ntDur">Dauer<select id="ntDur"><option value="60" selected>1 Std.</option><option value="75">1 Std. 15 Min.</option><option value="90">1 Std. 30 Min.</option><option value="105">1 Std. 45 Min.</option><option value="120">2 Std.</option><option value="150">2 Std. 30 Min.</option><option value="180">3 Std.</option></select></label>
       </div>
       <div class="row" style="margin-top:10px"><button id="btnAddTraining" class="primary">Termin anlegen</button></div>
     </details>
@@ -1442,9 +1442,9 @@ document.addEventListener("click", e => {
       if (!Number.isFinite(ms)) { status("Bitte Datum und Uhrzeit für den Beginn eingeben.", true); return; }
       if (ms < Date.now()) { status("Der Beginn liegt in der Vergangenheit.", true); return; }
       const kind = $("#ntKind").value === "game" ? "game" : "training";
-      const duration = Math.min(600, Math.max(15, Math.round(+$("#ntDur").value || 90)));
+      const duration = Math.min(600, Math.max(15, Math.round(+$("#ntDur").value || 60)));
       api.addTraining(ms, $("#ntPlace").value.trim(), kind, duration);
-      $("#ntStart").value = ""; $("#ntKind").value = "training"; $("#ntDur").value = "90"; $("#newTraining").open = false;
+      $("#ntStart").value = ""; $("#ntKind").value = "training"; $("#ntDur").value = "60"; $("#newTraining").open = false;
       status(`${kind === "game" ? "Spiel" : "Training"} am ${dDay(ms)} von ${dTime(ms)} bis ${dTime(ms + duration * 60000)} Uhr angelegt.`);
     }
     else if (t.id==="btnAdd") {
