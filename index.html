@@ -165,7 +165,7 @@ td input.email{width:220px}
       <div class="form">
         <label for="ntStart">Beginn<input id="ntStart" type="datetime-local"></label>
         <label for="ntPlace">Ort<input id="ntPlace" maxlength="80" placeholder="z. B. Eishalle"></label>
-        <label for="ntNote">Hinweis<input id="ntNote" maxlength="200" placeholder="optional"></label>
+        <label for="ntKind">Art<select id="ntKind"><option value="training" selected>Training</option><option value="game">Spiel</option></select></label>
       </div>
       <div class="row" style="margin-top:10px"><button id="btnAddTraining" class="primary">Termin anlegen</button></div>
     </details>
@@ -454,9 +454,9 @@ const api = {
     }
     fire(b.commit());
   },
-  addTraining(startMs, place, note){
+  addTraining(startMs, place, kind){
     fire(fb.F.addDoc(fb.F.collection(fb.db, "trainings"),
-      {start: fb.F.Timestamp.fromMillis(startMs), place, note, cancelled:false, responses:{}, teams:null, createdAt:Date.now()}));
+      {start: fb.F.Timestamp.fromMillis(startMs), place, kind, note:"", cancelled:false, responses:{}, teams:null, createdAt:Date.now()}));
   },
   updTraining(id, patch){ fire(fb.F.updateDoc(tRef(id), patch)); },
   delTraining(id){ const b = batcher(); b.delete(tRef(id)); b.delete(dRef(id)); fire(b.commit()); },
@@ -508,6 +508,9 @@ const attendees = t => listed(t).filter(r => answerOf(t, r.id) === "in").sort(by
 const absentees = t => listed(t).filter(r => r.access && answerOf(t, r.id) === "out").sort(byName);
 const deadlineOf = t => t.start - DEADLINE_MS;
 const selTraining = () => S.trainings.find(t => t.id === S.sel) || null;
+// Kind of appointment; older entries without a kind are trainings
+const isGame = t => t?.kind === "game";
+const kindOf = t => isGame(t) ? "Spiel" : "Training";
 
 /* ---------- teams ---------- */
 const sum = t => t.reduce((s,p)=>s+(+p.rating||0),0);
@@ -569,14 +572,14 @@ function renderTrainings(){
     else pill = `<span class="pill in">${attendees(t).length} dabei</span>`;
     return `<button class="tcard" data-sel="${esc(t.id)}" aria-current="${t.id===S.sel}">
       <span class="tdate"><small>${dDay(t.start).slice(0,2)}</small>${dDay(t.start).slice(3)}</span>
-      <span class="tinfo"><b>${dTime(t.start)} Uhr${t.place ? " · "+esc(t.place) : ""}</b><span>${esc(t.note || "")}</span></span>
+      <span class="tinfo"><b>${dTime(t.start)} Uhr${t.place ? " · "+esc(t.place) : ""}</b><span>${kindOf(t)}${t.note ? " · "+esc(t.note) : ""}</span></span>
       ${pill}</button>`;
   }).join("");
 }
 
 function renderDetail(){
   const box = $("#tDetail"), t = selTraining();
-  $("#detailPanel").hidden = !t; $("#attPanel").hidden = !t || !isTrainer(); $("#genPanel").hidden = !t || t.cancelled;
+  $("#detailPanel").hidden = !t; $("#attPanel").hidden = !t || !isTrainer(); $("#genPanel").hidden = !t || t.cancelled || isGame(t);
   if (!t) { box.innerHTML = ""; return; }
   const ins = attendees(t), outs = absentees(t), cnt = k => ins.filter(r=>r.pos===k).length;
   const late = Date.now() >= deadlineOf(t);
@@ -591,7 +594,7 @@ function renderDetail(){
                 <span class="muted">möglich bis ${dDay(deadlineOf(t))} ${dTime(deadlineOf(t))} Uhr</span>`}
     </div>`;
   }
-  box.innerHTML = `<h2>${dDay(t.start)} · ${dTime(t.start)} Uhr <small>${esc(t.place||"")}</small></h2>
+  box.innerHTML = `<h2>${kindOf(t)} · ${dDay(t.start)} · ${dTime(t.start)} Uhr <small>${esc(t.place||"")}</small></h2>
     ${t.note ? `<p>${esc(t.note)}</p>` : ""}
     ${t.cancelled ? `<p class="note warn">Dieser Termin fällt aus.</p>` : mine}
     ${t.cancelled ? "" : `<div class="names"><b>Dabei (${ins.length}):</b> Tor ${cnt("G")} · Verteidigung ${cnt("D")} · Sturm ${cnt("O")}<br>${ins.map(r=>esc(r.name)).join(", ") || "–"}</div>
@@ -694,7 +697,7 @@ function renderKonto(){
 function teamsText(t, tm){
   const name = id => S.roster[id]?.name || S.players[id]?.name;
   const l = ids => ids.map(id => ({id, n:name(id), p:(S.roster[id]||S.players[id]||{}).pos})).filter(x=>x.n).map(x=>`${x.n} (${POS_SHORT[x.p]||"S"})`).join(", ");
-  return `Termin ${dDay(t.start)} ${dTime(t.start)} Uhr${t.place ? " – "+t.place : ""}\nTeam A: ${l(tm.A)}\nTeam B: ${l(tm.B)}`;
+  return `${kindOf(t)} ${dDay(t.start)} ${dTime(t.start)} Uhr${t.place ? " – "+t.place : ""}\nTeam A: ${l(tm.A)}\nTeam B: ${l(tm.B)}`;
 }
 async function copy(text, btn){
   try { await navigator.clipboard.writeText(text); const x=btn.textContent; btn.textContent="Kopiert"; setTimeout(()=>btn.textContent=x,1500); }
@@ -732,9 +735,10 @@ document.addEventListener("click", e => {
       const v = $("#ntStart").value, ms = v ? new Date(v).getTime() : NaN;
       if (!Number.isFinite(ms)) { status("Bitte Datum und Uhrzeit für den Beginn eingeben.", true); return; }
       if (ms < Date.now()) { status("Der Beginn liegt in der Vergangenheit.", true); return; }
-      api.addTraining(ms, $("#ntPlace").value.trim(), $("#ntNote").value.trim());
-      $("#ntStart").value = ""; $("#ntNote").value = ""; $("#newTraining").open = false;
-      status(`Termin am ${dDay(ms)} um ${dTime(ms)} Uhr angelegt.`);
+      const kind = $("#ntKind").value === "game" ? "game" : "training";
+      api.addTraining(ms, $("#ntPlace").value.trim(), kind);
+      $("#ntStart").value = ""; $("#ntKind").value = "training"; $("#newTraining").open = false;
+      status(`${kind === "game" ? "Spiel" : "Training"} am ${dDay(ms)} um ${dTime(ms)} Uhr angelegt.`);
     }
     else if (t.id==="btnAdd") {
       const name=$("#newName").value.trim(); if(!name){ status("Bitte einen Namen eingeben.", true); return; }

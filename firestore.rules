@@ -82,7 +82,8 @@ service cloud.firestore {
         || ownAnswer();
 
       function validTraining(t) {
-        return t.keys().hasOnly(['start', 'place', 'note', 'cancelled', 'responses', 'teams', 'createdAt'])
+        return t.keys().hasOnly(['start', 'place', 'kind', 'note', 'cancelled', 'responses', 'teams', 'createdAt'])
+          && (!('kind' in t) || t.kind in ['training', 'game'])
           && t.start is timestamp
           && t.place is string && t.place.size() <= 80
           && t.note is string && t.note.size() <= 200
