@@ -247,7 +247,7 @@ td input.email{width:220px}
           <option value="all">Alle</option>
         </select></label>
     </div>
-    <p class="muted">Gezählt werden vergangene Termine, die nicht ausgefallen sind. Spieler mit Zugang gelten als dabei, wenn sie nicht abgesagt haben. Nur für Trainer sichtbar.</p>
+    <p class="muted">Gezählt werden vergangene Termine, die nicht ausgefallen sind. Spieler mit Zugang gelten als dabei, wenn sie nicht abgesagt haben – außer du markierst sie unten bei „Vergangene Termine“ als nicht erschienen. Nur für Trainer sichtbar.</p>
     <div class="tablewrap" id="statTable"></div>
   </section>
 
@@ -520,6 +520,7 @@ const api = {
   setLines(tid, ln){ fire(fb.F.setDoc(dRef(tid), {lines:{d:ln.d, o:ln.o, slot:ln.slot}, at:Date.now()})); },
   publishLines(t, ln){ api.updTraining(t.id, {lines: {d:ln.d, o:ln.o, slot:ln.slot, at:Date.now()}}); },
   unpublishLines(t){ api.updTraining(t.id, {lines: null}); },
+  setNoShow(t, ids){ api.updTraining(t.id, {noshow: ids}); },
   answer(t, pid, val){ fire(fb.F.updateDoc(tRef(t.id), new fb.F.FieldPath("responses", pid), val)); },
 };
 
@@ -562,6 +563,9 @@ function answerOf(t, pid){
 }
 const listed = t => Object.values(S.roster).filter(r => r.active || t.responses[r.id] === "in");
 const attendees = t => listed(t).filter(r => answerOf(t, r.id) === "in").sort(byName);
+// No-shows: said yes (or did not cancel) but did not come; set by a trainer after the appointment
+const noShows = t => Array.isArray(t.noshow) ? t.noshow : [];
+const wasThere = (t, pid) => answerOf(t, pid) === "in" && !noShows(t).includes(pid);
 const absentees = t => listed(t).filter(r => r.access && answerOf(t, r.id) === "out").sort(byName);
 const deadlineOf = t => t.start - DEADLINE_MS;
 const selTraining = () => S.trainings.find(t => t.id === S.sel) || null;
@@ -863,11 +867,14 @@ function computeStats(past, from){
   const held = past.filter(t => !t.cancelled && t.start >= from);
   const nT = held.filter(t => !isGame(t)).length, nG = held.filter(isGame).length;
   const rows = Object.values(S.roster).map(r => {
-    let tr = 0, gm = 0;
-    for (const t of held) if (answerOf(t, r.id) === "in") { if (isGame(t)) gm++; else tr++; }
+    let tr = 0, gm = 0, ns = 0;
+    for (const t of held) {
+      if (wasThere(t, r.id)) { if (isGame(t)) gm++; else tr++; }
+      else if (answerOf(t, r.id) === "in") ns++;
+    }
     const all = nT + nG;
-    return {id:r.id, name:r.name, pos:r.pos, active:r.active, tr, gm, rate: all ? (tr + gm) / all : 0};
-  }).filter(x => x.active || x.tr + x.gm > 0);
+    return {id:r.id, name:r.name, pos:r.pos, active:r.active, tr, gm, ns, rate: all ? (tr + gm) / all : 0};
+  }).filter(x => x.active || x.tr + x.gm + x.ns > 0);
   return {held, nT, nG, rows};
 }
 
@@ -882,15 +889,23 @@ function renderStats(){
     const rows = st.rows.slice().sort((a,b) => (key === "name" ? byName(a,b) : (val(a) - val(b))) * dir || byName(a,b));
     const th = (k,l,c="") => `<th class="${c}" data-ssort="${k}" aria-sort="${key===k?(dir>0?"ascending":"descending"):"none"}">${l}${key===k?(dir>0?" ▲":" ▼"):""}</th>`;
     const pct = x => Math.round(x * 100) + " %";
-    $("#statTable").innerHTML = `<table><thead><tr>${th("name","Name")}${th("pos","Position")}${th("tr",`Trainings (${st.nT})`,"num")}${th("gm",`Spiele (${st.nG})`,"num")}${th("rate","Quote","num")}</tr></thead><tbody>${
-      rows.map(x => `<tr class="${x.active ? "" : "inactive"}"><td>${esc(x.name)}</td><td>${POS[x.pos]||""}</td><td class="num">${x.tr}</td><td class="num">${x.gm}</td><td class="num"><b>${pct(x.rate)}</b></td></tr>`).join("")
+    $("#statTable").innerHTML = `<table><thead><tr>${th("name","Name")}${th("pos","Position")}${th("tr",`Trainings (${st.nT})`,"num")}${th("gm",`Spiele (${st.nG})`,"num")}${th("ns","Nicht erschienen","num")}${th("rate","Quote","num")}</tr></thead><tbody>${
+      rows.map(x => `<tr class="${x.active ? "" : "inactive"}"><td>${esc(x.name)}</td><td>${POS[x.pos]||""}</td><td class="num">${x.tr}</td><td class="num">${x.gm}</td><td class="num">${x.ns || ""}</td><td class="num"><b>${pct(x.rate)}</b></td></tr>`).join("")
     }</tbody></table>`;
   }
   const past = S.past.filter(t => t.start >= statFrom($("#statRange").value));
   $("#pastCount").textContent = past.length ? String(past.length) : "";
   $("#pastTable").innerHTML = !past.length ? `<div class="empty">Keine vergangenen Termine im gewählten Zeitraum.</div>`
-    : `<table><thead><tr><th>Datum</th><th>Art</th><th>Zeit</th><th>Ort</th><th class="num">Dabei</th></tr></thead><tbody>${
-      past.map(t => `<tr class="${t.cancelled ? "inactive" : ""}"><td>${dDay(t.start)}${new Date(t.start).getFullYear() !== new Date().getFullYear() ? new Date(t.start).getFullYear() : ""}</td><td>${kindOf(t)}</td><td>${tRange(t)}</td><td>${esc(t.place||"")}</td><td class="num">${t.cancelled ? "fiel aus" : attendees(t).length}</td></tr>`).join("")
+    : `<table><thead><tr><th>Datum</th><th>Art</th><th>Zeit</th><th>Ort</th><th class="num">Da</th><th>Nicht erschienen</th></tr></thead><tbody>${
+      past.map(t => {
+        const ins = attendees(t), ns = ins.filter(r => noShows(t).includes(r.id)).length, open = S.openPast === t.id;
+        const row = `<tr class="${t.cancelled ? "inactive" : ""}"><td>${dDay(t.start)}${new Date(t.start).getFullYear() !== new Date().getFullYear() ? new Date(t.start).getFullYear() : ""}</td><td>${kindOf(t)}</td><td>${tRange(t)}</td><td>${esc(t.place||"")}</td><td class="num">${t.cancelled ? "fiel aus" : ins.length - ns}</td><td>${
+          t.cancelled ? "" : `<button data-nsopen="${esc(t.id)}" aria-expanded="${open}">${open ? "Fertig" : ns ? `${ns} – ändern` : "Erfassen"}</button>`}</td></tr>`;
+        if (!open || t.cancelled) return row;
+        return row + `<tr><td colspan="6"><p class="muted">Angetippt = war da. Wer zugesagt hat, aber nicht gekommen ist, hier antippen.</p><div class="chips">${
+          ins.map(r => `<button class="chip${r.access ? "" : " guest"}" data-noshow="${esc(r.id)}" data-tid="${esc(t.id)}" aria-pressed="${!noShows(t).includes(r.id)}">${esc(r.name)}</button>`).join("") || `<span class="muted">Niemand hatte zugesagt.</span>`
+        }</div></td></tr>`;
+      }).join("")
     }</tbody></table>`;
 }
 
@@ -965,6 +980,12 @@ document.addEventListener("click", e => {
       const id = t.dataset.del, name = S.players[id]?.name || "Spieler";
       t.blur(); api.delPlayer(id); status(`${name} gelöscht.`);
     });
+    else if (t.dataset.nsopen) { S.openPast = S.openPast === t.dataset.nsopen ? null : t.dataset.nsopen; renderStats(); }
+    else if (t.dataset.noshow) {
+      const pt = S.past.find(x => x.id === t.dataset.tid); if (!pt) return;
+      const id = t.dataset.noshow, cur = noShows(pt);
+      api.setNoShow(pt, cur.includes(id) ? cur.filter(x => x !== id) : [...cur, id]);
+    }
     else if (t.dataset.ssort) { const k=t.dataset.ssort; S.statSort = {key:k, dir: S.statSort.key===k ? -S.statSort.dir : (k==="name"||k==="pos" ? 1 : -1)}; renderStats(); }
     else if (t.dataset.sort) { const k=t.dataset.sort; S.sort = {key:k, dir: S.sort.key===k ? -S.sort.dir : 1}; renderPlayers(); }
     else if (t.id==="btnGoogle") signInGoogle();
