@@ -78,6 +78,11 @@ label.inline{display:flex;gap:6px;align-items:center;font-size:13.5px;color:var(
 .tp .pos{font:700 11px var(--body);letter-spacing:.06em;color:var(--muted)}
 .tp .q{font-variant-numeric:tabular-nums;color:var(--muted);font-size:13px}
 .tp button{padding:2px 8px;font-size:13px}
+.lines{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:12px}
+.team.l{background:var(--surface-2);border:1px solid var(--line)}
+.team.l h3{color:var(--ink)}
+.team.l.off{border-style:dashed}
+.tp select{padding:2px 6px;font-size:13px}
 .balance{font-variant-numeric:tabular-nums;font-size:13.5px}
 .tablewrap{overflow-x:auto}
 table{border-collapse:collapse;width:100%;font-size:14px;font-variant-numeric:tabular-nums}
@@ -194,6 +199,20 @@ td input.email{width:220px}
         </select></label>
     </div>
     <div id="draft"></div>
+  </section>
+
+  <section data-section="training" class="panel" id="linePanel">
+    <h2>Linien</h2>
+    <div class="row trainer-only">
+      <button id="btnLinesSuggest" class="primary">Vorschlag erstellen</button>
+      <label class="inline" for="lineCount">Linien
+        <select id="lineCount">
+          <option value="2">2</option>
+          <option value="3" selected>3</option>
+          <option value="4">4</option>
+        </select></label>
+    </div>
+    <div id="lines"></div>
   </section>
 
   <section data-section="spieler" class="panel">
@@ -463,6 +482,9 @@ const api = {
   setDraft(tid, tm){ fire(fb.F.setDoc(dRef(tid), {A:tm.A, B:tm.B, at:Date.now()})); },
   publish(t, tm){ api.updTraining(t.id, {teams: {A:tm.A, B:tm.B, at:Date.now()}}); },
   unpublish(t){ api.updTraining(t.id, {teams: null}); },
+  setLines(tid, ln){ fire(fb.F.setDoc(dRef(tid), {lines:{n:ln.n, slot:ln.slot}, at:Date.now()})); },
+  publishLines(t, ln){ api.updTraining(t.id, {lines: {n:ln.n, slot:ln.slot, at:Date.now()}}); },
+  unpublishLines(t){ api.updTraining(t.id, {lines: null}); },
   answer(t, pid, val){ fire(fb.F.updateDoc(tRef(t.id), new fb.F.FieldPath("responses", pid), val)); },
 };
 
@@ -554,7 +576,7 @@ function render(){
   document.querySelectorAll("nav a").forEach(a => { if (a.dataset.view===v) a.setAttribute("aria-current","page"); else a.removeAttribute("aria-current"); });
   document.querySelectorAll("[data-section]").forEach(s => s.hidden = s.dataset.section !== v);
   if (v==="denied") $("#deniedEmail").textContent = S.user?.email || "";
-  if (v==="training") { renderTrainings(); renderDetail(); if (isTrainer()) renderPresent(); renderTeams(); }
+  if (v==="training") { renderTrainings(); renderDetail(); if (isTrainer()) renderPresent(); renderTeams(); renderLines(); }
   if (v==="spieler") { if ($("#playerTable").contains(document.activeElement)) pendingRender = true; else renderPlayers(); }
   if (v==="konto") renderKonto();
 }
@@ -580,6 +602,7 @@ function renderTrainings(){
 function renderDetail(){
   const box = $("#tDetail"), t = selTraining();
   $("#detailPanel").hidden = !t; $("#attPanel").hidden = !t || !isTrainer(); $("#genPanel").hidden = !t || t.cancelled || isGame(t);
+  $("#linePanel").hidden = !t || t.cancelled || !isGame(t);
   if (!t) { box.innerHTML = ""; return; }
   const ins = attendees(t), outs = absentees(t), cnt = k => ins.filter(r=>r.pos===k).length;
   const late = Date.now() >= deadlineOf(t);
@@ -668,6 +691,102 @@ function renderTeams(){
     </div>`;
 }
 
+/* ---------- lines (games) ---------- */
+// Lines: {n: number of lines, slot: {playerId: "G" for the goal or "1".."4"}}
+const isLines = x => !!x && Number.isInteger(x.n) && !!x.slot && typeof x.slot === "object";
+const publishedLines = t => isLines(t.lines) ? t.lines : null;
+const draftLines = t => isLines(S.drafts[t.id]?.lines) ? S.drafts[t.id].lines : publishedLines(t);
+const sameLines = (x, y) => isLines(x) && isLines(y) && x.n === y.n
+  && JSON.stringify(Object.entries(x.slot).sort()) === JSON.stringify(Object.entries(y.slot).sort());
+const person = id => ({...(S.roster[id]||{}), ...(S.players[id]||{}), id});
+const slotName = k => k === "G" ? "Tor" : `Linie ${k}`;
+const slotKeys = n => ["G", ...Array.from({length:n}, (_, i) => String(i+1))];
+
+// Goalies in goal; defenders and forwards by strength, the strongest in line 1
+function suggestLines(t, n){
+  const ps = attendees(t).map(r => person(r.id)).filter(p => p.name);
+  const slot = {};
+  ps.filter(p => p.pos === "G").forEach(p => slot[p.id] = "G");
+  for (const k of ["D","O"]) {
+    const g = ps.filter(p => p.pos === k).sort((a,b) => (+b.rating||5) - (+a.rating||5) || byName(a,b));
+    g.forEach((p, i) => slot[p.id] = String(Math.floor(i * n / g.length) + 1));
+  }
+  return {n, slot};
+}
+
+function lineHTML(key, ids, ln, edit, off){
+  const order = {G:0,D:1,O:2};
+  const people = ids.map(person).filter(p => p.name).sort((x,y)=>order[x.pos]-order[y.pos]||byName(x,y));
+  const cnt = k => people.filter(p=>p.pos===k).length;
+  const head = key === "G" || off ? `${people.length}`
+    : `V ${cnt("D")} · S ${cnt("O")}${isTrainer() && people.length ? " · Ø "+fmt(mean(people)) : ""}`;
+  const opts = id => [...slotKeys(ln.n), ""].map(k =>
+    `<option value="${k}" ${(ln.slot[id]||"")===k ? "selected" : ""}>${k ? (k==="G" ? "Tor" : "L"+k) : "–"}</option>`).join("");
+  return `<div class="team l${off ? " off" : ""}"><h3>${off ? "Nicht eingeteilt" : slotName(key)}<span>${head}</span></h3>${
+    people.map(p=>`<div class="tp"><span class="pos">${POS_SHORT[p.pos]||"S"}</span><span>${esc(p.name)}</span><span class="q">${isTrainer() ? fmt(+p.rating||5) : ""}</span>${
+      edit ? `<select data-slot="${esc(p.id)}" aria-label="${esc(p.name)} einteilen">${opts(p.id)}</select>` : "<span></span>"}</div>`).join("") || `<span class="muted">–</span>`
+  }</div>`;
+}
+
+function linesBody(ln, ids, edit){
+  const keys = slotKeys(ln.n);
+  const by = k => ids.filter(id => ln.slot[id] === k);
+  const rest = ids.filter(id => !keys.includes(ln.slot[id]));
+  return `<div class="lines">${keys.map(k => lineHTML(k, by(k), ln, edit, false)).join("")}${
+    edit && rest.length ? lineHTML("", rest, ln, edit, true) : ""}</div>`;
+}
+
+function renderLines(){
+  const t = selTraining(), box = $("#lines");
+  if (!t || t.cancelled || !isGame(t)) { box.innerHTML = ""; return; }
+  if (!isTrainer()) {
+    const pub = publishedLines(t);
+    box.innerHTML = pub
+      ? `${linesBody(pub, Object.keys(pub.slot), false)}<div class="row"><button id="btnLinesCopy">Als Text kopieren</button></div>`
+      : `<p class="muted">Die Linien erscheinen hier, sobald der Trainer sie freigegeben hat.</p>`;
+    return;
+  }
+  const ln = draftLines(t), pub = publishedLines(t);
+  if (!ln) {
+    box.innerHTML = `<p class="muted">Wenn die Zusagen stehen, „Vorschlag erstellen“ wählen: Torhüter ins Tor, Verteidiger und Stürmer nach Stärke auf die Linien, die stärksten in Linie 1. Danach jeden Spieler über die Auswahl neben dem Namen umsetzen. Mitspieler sehen die Linien erst nach der Freigabe, und nie die Stärken.</p>`;
+    return;
+  }
+  $("#lineCount").value = String(ln.n);
+  const ins = attendees(t).map(r => r.id), inSet = new Set(ins);
+  const gone = Object.keys(ln.slot).filter(id => !inSet.has(id) && S.roster[id]);
+  const open = ins.filter(id => !ln.slot[id]);
+  const same = sameLines(pub, ln);
+  const state = !pub ? `<p class="note">Entwurf – noch nicht freigegeben. Mitspieler sehen die Linien erst nach der Freigabe.</p>`
+    : same ? `<p class="note">Freigegeben${pub.at ? " am "+dWhen(pub.at) : ""}. Mitspieler sehen diese Linien.</p>`
+    : `<p class="note warn">Geändert. Mitspieler sehen noch die zuletzt freigegebenen Linien.</p>`;
+  box.innerHTML = `${state}
+    ${gone.length ? `<p class="note warn">Inzwischen abgesagt: ${gone.map(id => esc(person(id).name)).join(", ")}. Sie fallen beim nächsten Umsetzen oder Freigeben heraus.</p>` : ""}
+    ${open.length ? `<p class="note warn">Noch nicht eingeteilt: ${open.length} Spieler.</p>` : ""}
+    ${linesBody(ln, ins, true)}
+    <div class="row">
+      ${same ? "" : `<button id="btnLinesPublish" class="primary">${pub ? "Änderungen freigeben" : "Linien freigeben"}</button>`}
+      <button id="btnLinesCopy">Als Text kopieren</button>
+      ${pub ? `<button id="btnLinesUnpublish" class="danger">Freigabe zurückziehen</button>` : ""}
+    </div>`;
+}
+
+// Keeps only players who are still coming, in slots that exist
+function cleanLines(t, ln){
+  const inSet = new Set(attendees(t).map(r => r.id)), keys = slotKeys(ln.n), slot = {};
+  for (const [id, k] of Object.entries(ln.slot)) if (inSet.has(id) && keys.includes(k)) slot[id] = k;
+  return {n: ln.n, slot};
+}
+
+function linesText(t, ln){
+  const order = {G:0,D:1,O:2};
+  const rows = slotKeys(ln.n).map(k => {
+    const ps = Object.keys(ln.slot).filter(id => ln.slot[id] === k).map(person).filter(p => p.name)
+      .sort((x,y)=>order[x.pos]-order[y.pos]||byName(x,y));
+    return ps.length ? `${slotName(k)}: ${ps.map(p => k === "G" ? p.name : `${p.name} (${POS_SHORT[p.pos]||"S"})`).join(", ")}` : "";
+  }).filter(Boolean);
+  return `${kindOf(t)} ${dDay(t.start)} ${dTime(t.start)} Uhr${t.place ? " – "+t.place : ""}\n${rows.join("\n")}`;
+}
+
 function renderPlayers(){
   pendingRender = false;
   const all = Object.values(S.players);
@@ -726,6 +845,14 @@ document.addEventListener("click", e => {
       const A = tm.A.filter(x=>x!==id), B = tm.B.filter(x=>x!==id); (inA ? B : A).push(id);
       api.setDraft(tr.id, {A, B});
     }
+    else if (t.id==="btnLinesSuggest" && tr) {
+      const ln = suggestLines(tr, +$("#lineCount").value || 3);
+      if (!Object.keys(ln.slot).length) { status("Noch keine Zusagen für dieses Spiel.", true); return; }
+      api.setLines(tr.id, ln); status("");
+    }
+    else if (t.id==="btnLinesCopy" && tr) { const ln = isTrainer() ? draftLines(tr) : publishedLines(tr); if (ln) copy(linesText(tr, ln), t); }
+    else if (t.id==="btnLinesPublish" && tr && draftLines(tr)) { const ln = cleanLines(tr, draftLines(tr)); api.setLines(tr.id, ln); api.publishLines(tr, ln); status("Linien freigegeben. Alle Mitspieler sehen sie jetzt."); }
+    else if (t.id==="btnLinesUnpublish" && tr) confirmBtn(t, () => { api.unpublishLines(tr); status("Freigabe zurückgezogen. Mitspieler sehen keine Linien mehr."); });
     else if (t.id==="btnCopy" && tr) { const tm = isTrainer() ? draftOf(tr) : published(tr); if (tm) copy(teamsText(tr, tm), t); }
     else if (t.id==="btnPublish" && tr && draftOf(tr)) { api.publish(tr, draftOf(tr)); status("Teams freigegeben. Alle Mitspieler sehen sie jetzt."); }
     else if (t.id==="btnUnpublish" && tr) confirmBtn(t, () => { api.unpublish(tr); status("Freigabe zurückgezogen. Mitspieler sehen keine Teams mehr."); });
@@ -763,7 +890,14 @@ document.addEventListener("click", e => {
   } catch(err) { status("Das hat nicht geklappt ("+(err?.code||err?.message||"Fehler")+"). Bitte nochmal versuchen.", true); }
 });
 document.addEventListener("change", e => {
-  const el = e.target; const tr = el.closest("tr[data-pid]"); if (!tr || !el.dataset.f) return;
+  const el = e.target;
+  const tg = selTraining();
+  if (el.dataset.slot && tg && draftLines(tg)) {
+    const ln = cleanLines(tg, draftLines(tg));
+    if (el.value) ln.slot[el.dataset.slot] = el.value; else delete ln.slot[el.dataset.slot];
+    api.setLines(tg.id, ln); return;
+  }
+  if (el.id === "lineCount" && tg && draftLines(tg)) { api.setLines(tg.id, cleanLines(tg, {...draftLines(tg), n: +el.value || 3})); return; } const tr = el.closest("tr[data-pid]"); if (!tr || !el.dataset.f) return;
   const id = tr.dataset.pid, f = el.dataset.f;
   if (f==="email") { if (!api.setAccess(id, el.value.trim().toLowerCase())) el.value = S.players[id].email || ""; return; }
   let v;

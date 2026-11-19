@@ -82,13 +82,14 @@ service cloud.firestore {
         || ownAnswer();
 
       function validTraining(t) {
-        return t.keys().hasOnly(['start', 'place', 'kind', 'note', 'cancelled', 'responses', 'teams', 'createdAt'])
+        return t.keys().hasOnly(['start', 'place', 'kind', 'note', 'cancelled', 'responses', 'teams', 'lines', 'createdAt'])
           && (!('kind' in t) || t.kind in ['training', 'game'])
           && t.start is timestamp
           && t.place is string && t.place.size() <= 80
           && t.note is string && t.note.size() <= 200
           && t.cancelled is bool
-          && t.responses is map;
+          && t.responses is map
+          && (!('lines' in t) || t.lines == null || validLines(t.lines));
       }
 
       // A player changes only the own answer, only to yes/no, up to 24 h before the start
@@ -103,13 +104,23 @@ service cloud.firestore {
       }
     }
 
-    // Team drafts: only trainers; players see teams once a trainer copies them into the training
+    // Lines for a game: number of lines and per player "G" (goal) or "1".."4"
+    function validLines(l) {
+      return l is map
+        && l.keys().hasOnly(['n', 'slot', 'at'])
+        && l.n is int && l.n >= 1 && l.n <= 4
+        && l.slot is map;
+    }
+
+    // Drafts of teams (training) or lines (game): only trainers; players see them once a
+    // trainer copies them into the training
     match /drafts/{trainingId} {
       allow read, delete: if isTrainer();
       allow create, update: if isTrainer()
-        && request.resource.data.keys().hasOnly(['A', 'B', 'at'])
-        && request.resource.data.A is list
-        && request.resource.data.B is list;
+        && request.resource.data.keys().hasOnly(['A', 'B', 'lines', 'at'])
+        && (!('A' in request.resource.data) || request.resource.data.A is list)
+        && (!('B' in request.resource.data) || request.resource.data.B is list)
+        && (!('lines' in request.resource.data) || validLines(request.resource.data.lines));
     }
 
     // Everything else stays closed.
