@@ -290,6 +290,7 @@ td input.email{width:220px}
           <option value="year">Dieses Kalenderjahr</option>
           <option value="all">Alle</option>
         </select></label>
+      <button id="btnExpStats">Als Excel-Datei exportieren</button>
     </div>
     <p class="muted">Gezählt werden vergangene Termine, die nicht ausgefallen sind. Spieler mit Zugang gelten als dabei, wenn sie nicht abgesagt haben – außer du markierst sie im Bereich „Ergebnisse“ als nicht erschienen. S/U/N sind Siege, Unentschieden und Niederlagen: bei Spielen für alle, die da waren, bei Trainings nach den freigegebenen Teams. Nur für Trainer sichtbar.</p>
     <div class="tablewrap" id="statTable"></div>
@@ -303,6 +304,7 @@ td input.email{width:220px}
           <option value="open" selected>Offen – noch kein Ergebnis</option>
           <option value="all">Alle vergangenen Termine</option>
         </select></label>
+      <button id="btnExpResults">Als Excel-Datei exportieren</button>
     </div>
     <p class="muted">Nach dem Termin „Erfassen“ tippen: Ergebnis eintragen und markieren, wer trotz Zusage nicht gekommen ist. „Fertig“ speichert. Nur für Trainer sichtbar.</p>
     <div class="tablewrap" id="pastTable"></div>
@@ -331,6 +333,10 @@ td input.email{width:220px}
           <option value="open" selected>Mit offenem Betrag</option>
           <option value="all">Alle Spieler</option>
         </select></label>
+    </div>
+    <div class="row">
+      <button id="btnExpKasse">Übersicht exportieren</button>
+      <button id="btnExpPosten">Alle Posten exportieren</button>
     </div>
     <p class="muted">Beitragsart je Spieler festlegen, unter „Posten“ abhaken, was bezahlt ist. Gäste ohne Zugang sind auch dabei. Nur für Trainer und Kassier sichtbar.</p>
     <div id="kasseList" class="plist"></div>
@@ -1333,6 +1339,55 @@ function renderMyFees(){
     ${open.length ? `<div class="plist">${open.map(c => `<div class="charge"><span>${esc(c.label)}</span><b>${euro(c.amount)}</b></div>`).join("")}</div>` : ""}`;
 }
 
+/* ---------- export (CSV for Excel) ---------- */
+// German Excel: semicolon as separator, comma as decimal mark, UTF-8 with BOM so umlauts survive
+const csvCell = v => {
+  if (v === null || v === undefined) return "";
+  if (typeof v === "number") return String(Math.round(v * 100) / 100).replace(".", ",");
+  const t = String(v);
+  return /[";\r\n]/.test(t) || /^[=+\-@]/.test(t) ? `"${t.replace(/"/g, '""')}"` : t;
+};
+const toCsv = rows => "﻿" + rows.map(r => r.map(csvCell).join(";")).join("\r\n") + "\r\n";
+const dateDe = ms => new Date(ms).toLocaleDateString("de-DE", {day: "2-digit", month: "2-digit", year: "numeric"});
+function downloadCsv(name, rows){
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([toCsv(rows)], {type: "text/csv;charset=utf-8"}));
+  a.download = `${name}-${today()}.csv`; document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+}
+const RANGE_NAME = {season: "saison", year: "jahr", all: "alle"};
+
+function statsRows(range){
+  const st = computeStats(S.past, statFrom(range));
+  return [["Name", "Position", `Trainings (von ${st.nT})`, `Spiele (von ${st.nG})`, "Nicht erschienen", "Siege", "Unentschieden", "Niederlagen", "Quote %"],
+    ...st.rows.slice().sort(byName).map(x => [x.name, POS[x.pos] || "", x.tr, x.gm, x.ns, x.w, x.d, x.l, Math.round(x.rate * 100)])];
+}
+function resultRows(){
+  const names = ids => ids.map(id => S.roster[id]?.name).filter(Boolean).join(", ");
+  return [["Datum", "Art", "Beginn", "Ende", "Ort", "Ausgefallen", "Anwesend", "Nicht erschienen", "Ergebnis", "Tore Stars / Team A", "Tore Gegner / Team B"],
+    ...S.past.slice().sort((a, b) => a.start - b.start).map(t => {
+      const ins = attendees(t), ns = ins.filter(r => noShows(t).includes(r.id)), r = validResult(t.result) ? t.result : null;
+      return [dateDe(t.start), kindOf(t), dTime(t.start), endOf(t) ? dTime(endOf(t)) : "", t.place || "", t.cancelled ? "ja" : "nein",
+        t.cancelled ? "" : ins.length - ns.length, names(ns.map(r => r.id)), r ? `${r.a}:${r.b}` : "", r ? r.a : "", r ? r.b : ""];
+    })];
+}
+function kasseRows(){
+  return [["Name", "Gast", "Beitragsart", "Summe €", "Bezahlt €", "Offen €"],
+    ...Object.values(S.roster).sort(byName).map(r => {
+      const all = chargesOf(r.id), sum = all.reduce((x, c) => x + c.amount, 0), open = openOf(r.id);
+      return {r, sum, open};
+    }).filter(x => x.r.active || x.sum > 0).map(({r, sum, open}) => [r.name, r.access ? "nein" : "ja", PLANS[planOf(r.id)], sum, sum - open, open])];
+}
+function postenRows(){
+  const rows = [];
+  for (const r of Object.values(S.roster).sort(byName))
+    for (const c of chargesOf(r.id)) {
+      const paidAt = S.billing[r.id]?.paid?.[c.key];
+      rows.push([r.name, dateDe(c.at), c.label, c.amount, paidAt ? "ja" : "nein", paidAt ? dateDe(+paidAt) : ""]);
+    }
+  return [["Spieler", "Datum", "Posten", "Betrag €", "Bezahlt", "Bezahlt am"], ...rows];
+}
+
 /* ---------- team info ---------- */
 const SEEN_KEY = "stars-news-seen";
 const seenAt = () => { try { return +localStorage.getItem(SEEN_KEY) || 0; } catch { return 0; } };
@@ -1522,6 +1577,10 @@ document.addEventListener("click", e => {
     else if (t.dataset.ics) { const x = S.trainings.find(y => y.id === t.dataset.ics); if (x) downloadIcs(x); }
     else if (t.dataset.kopen) { S.openKasse = S.openKasse === t.dataset.kopen ? null : t.dataset.kopen; renderKasse(); }
     else if (t.dataset.payall) { const pid = t.dataset.payall; api.setPaid(pid, openCharges(pid).map(c => c.key), true); status(`${S.roster[pid]?.name || "Spieler"}: alles bezahlt.`); }
+    else if (t.id==="btnExpStats") { const rg = $("#statRange").value; downloadCsv(`stars-statistik-${RANGE_NAME[rg] || rg}`, statsRows(rg)); }
+    else if (t.id==="btnExpResults") downloadCsv("stars-ergebnisse", resultRows());
+    else if (t.id==="btnExpKasse") { if (kasseStart() === null) { status("Die Kasse ist noch nicht eingerichtet.", true); return; } downloadCsv("stars-kasse-uebersicht", kasseRows()); }
+    else if (t.id==="btnExpPosten") { if (kasseStart() === null) { status("Die Kasse ist noch nicht eingerichtet.", true); return; } downloadCsv("stars-kasse-posten", postenRows()); }
     else if (t.id==="btnFine") {
       const pid = $("#fnPlayer").value, reason = $("#fnReason").value.trim().slice(0, 200), amount = Math.round(Number($("#fnAmount").value) * 100) / 100;
       if (!pid) { status("Bitte einen Spieler wählen.", true); return; }
