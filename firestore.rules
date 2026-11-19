@@ -28,6 +28,8 @@ service cloud.firestore {
     // write several documents in one batch. get() on a missing document denies the request.
     function isTrainer() { return signedIn() && me().get('role', 'trainer') == 'trainer'; }
     function myPlayerId() { return me().get('playerId', ''); }
+    // Trainers and the cashier manage the cash box
+    function isKasse() { return signedIn() && me().get('role', 'trainer') in ['trainer', 'cashier']; }
 
     // Optional jersey number 0-99
     function validNumber(d) {
@@ -41,19 +43,19 @@ service cloud.firestore {
       allow create: if isTrainer()
         && email == email.lower()
         && request.resource.data.keys().hasOnly(['name', 'role', 'playerId'])
-        && request.resource.data.role == 'player'
+        && request.resource.data.role in ['player', 'cashier']
         && request.resource.data.name is string
         && request.resource.data.playerId is string;
       allow update: if isTrainer()
         && request.resource.data.keys().hasOnly(['name', 'role', 'playerId'])
         && (
           // a player's access
-          (resource.data.get('role', 'trainer') == 'player' && request.resource.data.role == 'player')
+          (resource.data.get('role', 'trainer') in ['player', 'cashier'] && request.resource.data.role in ['player', 'cashier'])
           // a trainer links or unlinks the own player entry, nothing else
           || (email == myEmail()
               && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['playerId']))
         );
-      allow delete: if isTrainer() && resource.data.get('role', 'trainer') == 'player';
+      allow delete: if isTrainer() && resource.data.get('role', 'trainer') in ['player', 'cashier'];
     }
 
     match /players/{playerId} {
@@ -159,6 +161,26 @@ service cloud.firestore {
         && request.resource.data.email == myEmail()
         && request.resource.data.at is number;
       allow delete: if signedIn() && resource.data.email == myEmail();
+    }
+
+    // Cash box settings: tariffs per season, start date, extra costs per game. Everybody reads
+    // them (to see the own balance), trainers and the cashier write them.
+    match /kasse/{doc} {
+      allow read: if isMember();
+      allow create, update: if isKasse() && doc == 'settings'
+        && request.resource.data.keys().hasOnly(['startAt', 'seasons', 'gameCost'])
+        && (!('startAt' in request.resource.data) || request.resource.data.startAt is number)
+        && (!('seasons' in request.resource.data) || request.resource.data.seasons is map)
+        && (!('gameCost' in request.resource.data) || request.resource.data.gameCost is map);
+    }
+
+    // Payments per player (plan and paid items). A player reads only the own entry.
+    match /billing/{pid} {
+      allow read: if isKasse() || (isMember() && pid == myPlayerId());
+      allow create, update: if isKasse()
+        && request.resource.data.keys().hasOnly(['plan', 'paid'])
+        && (!('plan' in request.resource.data) || request.resource.data.plan in ['training', 'student', 'annual', 'free'])
+        && (!('paid' in request.resource.data) || request.resource.data.paid is map);
     }
 
     // Everything else stays closed.

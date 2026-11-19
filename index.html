@@ -139,6 +139,7 @@ body.ro .write{display:none!important}
     <a href="#info" data-view="info">Team-Info<span class="dot" id="navDot" hidden></span></a>
     <a href="#spieler" data-view="spieler" class="trainer-only">Spieler</a>
     <a href="#ergebnisse" data-view="ergebnisse" class="trainer-only">Ergebnisse</a>
+    <a href="#kasse" data-view="kasse" class="kasse-only">Kasse</a>
     <a href="#statistik" data-view="statistik" class="trainer-only">Statistik</a>
     <a href="#konto" data-view="konto">Konto</a>
   </nav>
@@ -147,6 +148,13 @@ body.ro .write{display:none!important}
 
 <style>
 .is-player .trainer-only{display:none!important}
+.no-kasse .kasse-only{display:none!important}
+.pres.due{color:var(--warn)}
+.charge{display:flex;align-items:center;gap:10px;padding:6px 0;border-bottom:1px solid var(--line)}
+.charge span{flex:1}
+.charge b{font-variant-numeric:tabular-nums}
+.pinfo select{padding:4px 8px;font-size:13.5px;margin-top:4px;width:100%;max-width:200px}
+.pitem{min-width:0}
 .tlist{display:grid;gap:8px}
 .tcard{display:grid;grid-template-columns:auto 1fr auto;gap:12px;align-items:center;padding:10px 12px;border:1px solid var(--line);border-radius:var(--r);background:var(--surface);cursor:pointer;text-align:left;font:inherit;color:inherit;width:100%}
 .tcard[aria-current="true"]{border-color:var(--gold);box-shadow:0 0 0 1px var(--gold)}
@@ -315,6 +323,36 @@ td input.email{width:220px}
     <div id="newsList" class="news"></div>
   </section>
 
+  <section data-section="kasse" class="panel">
+    <h2>Kasse <small id="kasseSum"></small></h2>
+    <div class="row">
+      <label class="inline" for="kasseFilter">Anzeigen
+        <select id="kasseFilter">
+          <option value="open" selected>Mit offenem Betrag</option>
+          <option value="all">Alle Spieler</option>
+        </select></label>
+    </div>
+    <p class="muted">Beitragsart je Spieler festlegen, unter „Posten“ abhaken, was bezahlt ist. Gäste ohne Zugang sind auch dabei. Nur für Trainer und Kassier sichtbar.</p>
+    <div id="kasseList" class="plist"></div>
+  </section>
+
+  <section data-section="kasse" class="panel">
+    <h2>Zusatzkosten bei Spielen</h2>
+    <p class="muted">Betrag pro Spieler, den jeder zahlt, der beim Spiel dabei war (z. B. Eis, Schiri). Leer = keine Zusatzkosten.</p>
+    <div id="gameCosts" class="plist"></div>
+  </section>
+
+  <section data-section="kasse" class="panel">
+    <h2>Tarife</h2>
+    <div class="row"><label class="inline" for="tariffSeason">Für <select id="tariffSeason"></select></label></div>
+    <div id="tariffBox"></div>
+  </section>
+
+  <section data-section="konto" class="panel" id="myFeesPanel" hidden>
+    <h2>Meine Beiträge</h2>
+    <div id="myFees"></div>
+  </section>
+
   <section data-section="konto" class="panel">
     <h2>Benachrichtigungen</h2>
     <div id="pushBox"></div>
@@ -349,7 +387,7 @@ const POS = {G:"Tor", D:"Verteidigung", O:"Sturm"};
 const POS_SHORT = {G:"T", D:"V", O:"S"};
 const SCALE = 4;                 // 4 points of average difference = 10:1 expected odds
 const DEADLINE_MS = 24*3600e3;   // players can answer up to 24 h before the start (enforced in firestore.rules)
-const S = {user:null, authKnown:false, denied:false, role:null, me:null, players:{}, roster:{}, trainings:[], allTrainings:[], past:[], sel:null, drafts:{}, members:{}, news:[],
+const S = {user:null, authKnown:false, denied:false, role:null, me:null, players:{}, roster:{}, trainings:[], allTrainings:[], past:[], sel:null, drafts:{}, members:{}, news:[], kasse:null, billing:{},
            loaded:{players:false, roster:false, trainings:false}, sort:{key:"name",dir:1}, statSort:{key:"rate",dir:-1}};
 let pendingRender = false;
 
@@ -419,9 +457,9 @@ async function initStore(){
 }
 
 function resetData(){
-  S.denied=false; S.role=null; S.me=null; S.players={}; S.roster={}; S.trainings=[]; S.allTrainings=[]; S.past=[]; S.sel=null; S.drafts={}; S.members={}; S.news=[];
+  S.denied=false; S.role=null; S.me=null; S.players={}; S.roster={}; S.trainings=[]; S.allTrainings=[]; S.past=[]; S.sel=null; S.drafts={}; S.members={}; S.news=[]; S.kasse=null; S.billing={};
   S.loaded={players:false, roster:false, trainings:false};
-  document.body.classList.remove("is-player");
+  document.body.classList.remove("is-player", "no-kasse");
 }
 function stopRole(){ roleUnsubs.forEach(u=>u()); roleUnsubs=[]; }
 function stopAll(){ stopRole(); authUnsubs.forEach(u=>u()); authUnsubs=[]; }
@@ -437,9 +475,9 @@ function watchMember(){
   if (!email) { S.denied = true; return; }
   authUnsubs.push(F.onSnapshot(F.doc(db, "members", email), d => {
     if (!d.exists()) { S.denied = true; S.role = null; stopRole(); render(); return; }
-    const m = d.data(), role = m.role === "player" ? "player" : "trainer";
+    const m = d.data(), role = m.role === "player" ? "player" : m.role === "cashier" ? "cashier" : "trainer";
     S.me = {...m, email}; S.denied = false;
-    if (role !== S.role) { S.role = role; document.body.classList.toggle("is-player", role === "player"); watchData(); }
+    if (role !== S.role) { S.role = role; document.body.classList.toggle("is-player", role !== "trainer"); document.body.classList.toggle("no-kasse", role === "player"); watchData(); }
     render();
   }, dbFail));
 }
@@ -455,13 +493,18 @@ function watchData(){
   }, dbFail));
   // Trainers load all appointments (past ones feed the statistics), players only the current ones
   const since = F.Timestamp.fromMillis(Date.now() - 6*3600e3);
-  const tq = isTrainer() ? F.query(F.collection(db, "trainings"), F.orderBy("start"))
-                         : F.query(F.collection(db, "trainings"), F.where("start", ">=", since), F.orderBy("start"));
+  // Everybody loads all appointments: past ones feed the statistics and the cash box
+  const tq = F.query(F.collection(db, "trainings"), F.orderBy("start"));
   roleUnsubs.push(F.onSnapshot(tq, s => {
     S.allTrainings = s.docs.map(d => { const v = d.data(); return {id:d.id, ...v, start: v.start?.toMillis?.() ?? 0, responses: v.responses || {}}; });
     splitTrainings();
     S.loaded.trainings = true; clearTimeout(timer); status(""); render();
   }, dbFail));
+  // Cash box: tariffs for everybody, payments of all players for trainers and the cashier, else only the own
+  const kasseFail = e => status("Kassendaten konnten nicht geladen werden (" + (e?.code || "Fehler") + ").", true);
+  roleUnsubs.push(F.onSnapshot(F.doc(db, "kasse", "settings"), d => { S.kasse = d.exists() ? d.data() : null; render(); }, kasseFail));
+  if (isKasse()) roleUnsubs.push(F.onSnapshot(F.collection(db, "billing"), s => { S.billing = {}; s.forEach(d => S.billing[d.id] = d.data()); render(); }, kasseFail));
+  else if (S.me?.playerId) roleUnsubs.push(F.onSnapshot(F.doc(db, "billing", S.me.playerId), d => { S.billing = d.exists() ? {[d.id]: d.data()} : {}; render(); }, kasseFail));
   // Team info: newest first
   roleUnsubs.push(F.onSnapshot(F.query(F.collection(db, "news"), F.orderBy("at", "desc"), F.limit(50)), s => {
     S.news = s.docs.map(d => { const v = d.data(); return {id:d.id, ...v, at: v.at?.toMillis?.() ?? 0}; });
@@ -528,7 +571,7 @@ function syncRoster(){
 }
 
 // Addresses of other trainers: their members entry is managed in the Firebase console only
-const isOtherTrainer = email => !!email && email !== S.me?.email && !!S.members[email] && (S.members[email].role || "trainer") !== "player";
+const isOtherTrainer = email => !!email && email !== S.me?.email && !!S.members[email] && (S.members[email].role || "trainer") === "trainer";
 
 // Adds to a batch what it takes to move a player's access from one address to another.
 // Another trainer's entry is never touched (the rules forbid it); only the address on the player is kept.
@@ -614,6 +657,20 @@ const api = {
     fire(fb.F.addDoc(fb.F.collection(fb.db, "news"), {title, text, at: fb.F.Timestamp.now(), by, kind:"info"}));
   },
   delNews(id){ fire(fb.F.deleteDoc(fb.F.doc(fb.db, "news", id))); },
+  setPlan(pid, plan){ fire(fb.F.setDoc(fb.F.doc(fb.db, "billing", pid), {plan}, {merge: true})); },
+  setPaid(pid, keys, paid){
+    if (!keys.length) return;
+    const ref = fb.F.doc(fb.db, "billing", pid);
+    if (paid) fire(fb.F.setDoc(ref, {paid: Object.fromEntries(keys.map(k => [k, Date.now()]))}, {merge: true}));
+    else fire(fb.F.updateDoc(ref, ...keys.flatMap(k => [new fb.F.FieldPath("paid", k), fb.F.deleteField()])));
+  },
+  setGameCost(tid, amount){
+    const ref = fb.F.doc(fb.db, "kasse", "settings");
+    if (amount > 0) fire(fb.F.setDoc(ref, {gameCost: {[tid]: amount}}, {merge: true}));
+    else if (S.kasse?.gameCost?.[tid] !== undefined) fire(fb.F.updateDoc(ref, new fb.F.FieldPath("gameCost", tid), fb.F.deleteField()));
+  },
+  setTariffs(season, startAt, tf){ fire(fb.F.setDoc(fb.F.doc(fb.db, "kasse", "settings"), {startAt, seasons: {[season]: tf}}, {merge: true})); },
+  setCashier(pid, email, on){ fire(fb.F.setDoc(mRef(email), {name: S.players[pid]?.name || "", role: on ? "cashier" : "player", playerId: pid})); },
   answer(t, pid, val){ fire(fb.F.updateDoc(tRef(t.id), new fb.F.FieldPath("responses", pid), val)); },
 };
 
@@ -709,6 +766,7 @@ function view(){
   if (h === "spieler" && isTrainer()) return "spieler";
   if (h === "statistik" && isTrainer()) return "statistik";
   if (h === "ergebnisse" && isTrainer()) return "ergebnisse";
+  if (h === "kasse" && isKasse()) return "kasse";
   if (h === "info") return "info";
   if (h === "konto") return "konto";
   return "training";
@@ -716,7 +774,7 @@ function view(){
 
 function render(){
   const v = view();
-  $(".menu").hidden = !["training","info","spieler","ergebnisse","statistik","konto"].includes(v);
+  $(".menu").hidden = !["training","info","spieler","ergebnisse","kasse","statistik","konto"].includes(v);
   const cur = document.querySelector(`nav a[data-view="${v}"]`); if (cur) $("#menuLabel").textContent = cur.firstChild.textContent;
   document.querySelectorAll("nav a").forEach(a => { if (a.dataset.view===v) a.setAttribute("aria-current","page"); else a.removeAttribute("aria-current"); });
   document.querySelectorAll("[data-section]").forEach(s => s.hidden = s.dataset.section !== v);
@@ -726,6 +784,8 @@ function render(){
   if (v==="statistik") renderStats();
   if (v==="ergebnisse") renderResults();
   if (v==="info") renderNews();
+  if (v==="kasse") renderKasse();
+  if (v==="konto") renderMyFees();
   if (v==="konto") { renderKonto(); renderPush(); }
   renderUnread();
 }
@@ -974,13 +1034,15 @@ function renderPlayers(){
   const {key, dir} = S.sort;
   const rows = all.slice().sort((a,b)=> (a.active===false)-(b.active===false) || (key==="name" ? byName(a,b) : key==="number" ? (nrOf(a) ?? 999)-(nrOf(b) ?? 999) : key==="pos" ? "GDO".indexOf(a.pos)-"GDO".indexOf(b.pos) : (+a.rating||0)-(+b.rating||0)) * dir);
   const th = (k,l,c="") => `<th class="${c}" data-sort="${k}" aria-sort="${key===k?(dir>0?"ascending":"descending"):"none"}">${l}${key===k?(dir>0?" ▲":" ▼"):""}</th>`;
-  $("#playerTable").innerHTML = `<table><thead><tr>${th("name","Name")}${th("number","Nr.","num")}${th("pos","Position")}${th("rating","Stärke","num")}<th>Zugang (E-Mail)</th><th>Aktiv</th><th><span hidden>Löschen</span></th></tr></thead><tbody>${
+  $("#playerTable").innerHTML = `<table><thead><tr>${th("name","Name")}${th("number","Nr.","num")}${th("pos","Position")}${th("rating","Stärke","num")}<th>Zugang (E-Mail)</th><th>Kassier</th><th>Aktiv</th><th><span hidden>Löschen</span></th></tr></thead><tbody>${
     rows.map(p=>`<tr class="${p.active===false?"inactive":""}" data-pid="${esc(p.id)}">
       <td><input class="pname" data-f="name" value="${esc(p.name)}" aria-label="Name"></td>
       <td class="num"><input class="nr" data-f="number" type="number" min="0" max="99" step="1" value="${nrOf(p) ?? ""}" placeholder="–" aria-label="Nummer ${esc(p.name)}"></td>
       <td><select data-f="pos" aria-label="Position ${esc(p.name)}">${["G","D","O"].map(k=>`<option value="${k}" ${p.pos===k?"selected":""}>${POS[k]}</option>`).join("")}</select></td>
       <td class="num"><input class="rating" data-f="rating" type="number" min="1" max="10" step="0.1" value="${round2(+p.rating||5)}" aria-label="Stärke ${esc(p.name)}"></td>
       <td><input class="email" data-f="email" type="email" value="${esc(p.email||"")}" placeholder="Gast – kein Zugang" aria-label="Zugang ${esc(p.name)}"></td>
+      <td>${(() => { const em = (p.email||"").toLowerCase(), ok = em && em !== S.me?.email && !isOtherTrainer(em);
+        return `<input type="checkbox" data-cashier="${esc(p.id)}" ${S.members[em]?.role === "cashier" ? "checked" : ""} ${ok ? "" : "disabled"} aria-label="${esc(p.name)} ist Kassier" title="${ok ? "Kassier: verwaltet die Kasse" : "Nur für Spieler mit Zugang"}">`; })()}</td>
       <td><input type="checkbox" data-f="active" ${p.active!==false?"checked":""} aria-label="${esc(p.name)} aktiv"></td>
       <td><button class="danger" data-del="${esc(p.id)}" aria-label="${esc(p.name)} löschen">Löschen</button></td></tr>`).join("")
   }</tbody></table>`;
@@ -1123,6 +1185,114 @@ function downloadIcs(t){
   setTimeout(() => URL.revokeObjectURL(a.href), 5000);
 }
 
+/* ---------- cash box (Kasse) ---------- */
+// Season from 1 September; its key is the year it starts in
+const seasonOf = ms => { const d = new Date(ms); return d.getMonth() >= 8 ? d.getFullYear() : d.getFullYear() - 1; };
+const seasonLabel = y => `${y}/${String((y + 1) % 100).padStart(2, "0")}`;
+const TARIFF_DEFAULT = {annual: 200, training: 15, student: 10, noshow: 0};
+const PLANS = {training: "Pro Training", student: "Pro Training – Student", annual: "Jahresbeitrag", free: "Frei"};
+const isKasse = () => S.role === "trainer" || S.role === "cashier";
+const kasseStart = () => Number.isFinite(S.kasse?.startAt) ? S.kasse.startAt : null;
+// Tariffs of a season: its own, else those of the latest earlier season, else the defaults
+function tariffOf(season){
+  const all = S.kasse?.seasons || {};
+  if (all[season]) return {...TARIFF_DEFAULT, ...all[season]};
+  const older = Object.keys(all).map(Number).filter(y => y < season).sort((a, b) => b - a)[0];
+  return {...TARIFF_DEFAULT, ...(older !== undefined ? all[older] : {})};
+}
+// Without an entry a player pays per training (guests too)
+const planOf = pid => PLANS[S.billing[pid]?.plan] ? S.billing[pid].plan : "training";
+const gameCost = t => +(S.kasse?.gameCost?.[t.id]) || 0;
+const euro = n => (Math.round(n * 100) / 100).toLocaleString("de-DE", {style: "currency", currency: "EUR"});
+
+// All charges of a player since the start of the cash box, oldest first:
+// annual fee per season, training fee (per-training plans), extra costs of games (everybody who played),
+// penalty for not showing up despite a yes (everybody)
+function chargesOf(pid){
+  const from = kasseStart(); if (from === null) return [];
+  const plan = planOf(pid), out = [];
+  if (plan === "annual")
+    for (let y = seasonOf(from); y <= seasonOf(Date.now()); y++)
+      out.push({key: "y:" + y, label: `Jahresbeitrag ${seasonLabel(y)}`, amount: tariffOf(y).annual, at: new Date(y, 8, 1).getTime()});
+  for (const t of S.past) {
+    if (t.cancelled || t.start < from) continue;
+    const tf = tariffOf(seasonOf(t.start)), when = `${kindOf(t)} ${dDay(t.start)}`;
+    if (wasThere(t, pid)) {
+      if (!isGame(t) && (plan === "training" || plan === "student"))
+        out.push({key: "t:" + t.id, label: when, amount: plan === "student" ? tf.student : tf.training, at: t.start});
+      if (isGame(t) && gameCost(t) > 0) out.push({key: "g:" + t.id, label: `${when} – Zusatzkosten`, amount: gameCost(t), at: t.start});
+    } else if (answerOf(t, pid) === "in" && tf.noshow > 0) {
+      out.push({key: "n:" + t.id, label: `Nicht erschienen: ${when}`, amount: tf.noshow, at: t.start});
+    }
+  }
+  return out.filter(c => c.amount > 0).sort((a, b) => a.at - b.at);
+}
+const isPaid = (pid, c) => !!S.billing[pid]?.paid?.[c.key];
+const openCharges = pid => chargesOf(pid).filter(c => !isPaid(pid, c));
+const openOf = pid => openCharges(pid).reduce((s, c) => s + c.amount, 0);
+
+function renderKasse(){
+  const start = kasseStart(), onlyOpen = $("#kasseFilter").value === "open";
+  const people = Object.values(S.roster).map(r => ({...r, open: openOf(r.id)}))
+    .filter(r => r.active || r.open > 0).sort(byName);
+  const total = people.reduce((s, r) => s + r.open, 0);
+  $("#kasseSum").textContent = start === null ? "" : `offen gesamt ${euro(total)}`;
+  const shown = people.filter(r => !onlyOpen || r.open > 0 || r.id === S.openKasse);
+  $("#kasseList").innerHTML = start === null
+    ? `<div class="empty">Die Kasse ist noch nicht eingerichtet. Unten bei „Tarife“ das Startdatum und die Beträge festlegen und speichern. Vorher entstehen keine Posten.</div>`
+    : !shown.length ? `<div class="empty">${onlyOpen ? "Niemand hat einen offenen Betrag." : "Noch keine Spieler."}</div>`
+    : shown.map(r => {
+      const open = S.openKasse === r.id, all = open ? chargesOf(r.id) : [];
+      return `<div class="pitem">
+        <div class="phead">
+          <div class="pinfo"><b>${nrHTML(S.roster[r.id])}${esc(r.name)}${r.access ? "" : ` <small class="muted">Gast</small>`}</b>
+            <span><select data-plan="${esc(r.id)}" aria-label="Beitragsart ${esc(r.name)}">${Object.entries(PLANS).map(([k, l]) => `<option value="${k}" ${planOf(r.id) === k ? "selected" : ""}>${l}</option>`).join("")}</select></span></div>
+          <div class="pres${r.open > 0 ? " due" : ""}">${euro(r.open)}</div>
+          <button data-kopen="${esc(r.id)}" aria-expanded="${open}">${open ? "Zu" : "Posten"}</button>
+        </div>${open ? `<div class="pedit">${!all.length ? `<span class="muted">Keine Posten seit Start der Kasse.</span>` : all.map(c => `
+          <label class="charge"><input type="checkbox" data-paid="${esc(r.id)}" data-key="${esc(c.key)}" ${isPaid(r.id, c) ? "checked" : ""}>
+            <span>${esc(c.label)}</span><b>${euro(c.amount)}</b></label>`).join("")}
+          ${r.open > 0 ? `<div class="row"><button class="primary" data-payall="${esc(r.id)}">Alles bezahlt (${euro(r.open)})</button></div>` : ""}
+        </div>` : ""}
+      </div>`;
+    }).join("");
+
+  // Extra costs of games since the start of the cash box (newest first)
+  const games = S.allTrainings.filter(t => isGame(t) && !t.cancelled && (start === null || t.start >= start)).sort((a, b) => b.start - a.start).slice(0, 30);
+  $("#gameCosts").innerHTML = !games.length ? `<div class="empty">Keine Spiele${start === null ? "" : " seit Start der Kasse"}.</div>`
+    : games.map(t => `<div class="pitem"><div class="phead">
+        <div class="pinfo"><b>Spiel ${dDay(t.start)}</b><span>${tRange(t)} Uhr${t.place ? " · " + esc(t.place) : ""}${t.start > Date.now() ? " · kommt noch" : ""}</span></div>
+        <label class="inline">€ pro Spieler <input type="number" min="0" max="1000" step="0.5" data-gcost="${esc(t.id)}" value="${gameCost(t) || ""}" placeholder="0" style="width:80px"></label>
+      </div></div>`).join("");
+
+  // Tariffs: the current or the next season
+  const sel = $("#tariffSeason"), cur = seasonOf(Date.now());
+  if (!sel.options.length) sel.innerHTML = [cur, cur + 1].map(y => `<option value="${y}">Saison ${seasonLabel(y)}</option>`).join("");
+  const y = +sel.value || cur, tf = tariffOf(y), own = !!S.kasse?.seasons?.[y];
+  const startVal = new Date((start ?? Date.now()) - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 10);
+  $("#tariffBox").innerHTML = `
+    ${own ? "" : `<p class="note">Für ${seasonLabel(y)} sind noch keine eigenen Beträge gespeichert – angezeigt werden die ${y === cur ? "Standardwerte" : "Beträge der Vorsaison"}.</p>`}
+    <div class="form">
+      <label for="tfStart">Kasse rechnet ab<input id="tfStart" type="date" value="${startVal}"></label>
+      <label for="tfAnnual">Jahresbeitrag (€)<input id="tfAnnual" type="number" min="0" step="1" value="${tf.annual}"></label>
+      <label for="tfTraining">Training normal (€)<input id="tfTraining" type="number" min="0" step="0.5" value="${tf.training}"></label>
+      <label for="tfStudent">Training Student (€)<input id="tfStudent" type="number" min="0" step="0.5" value="${tf.student}"></label>
+      <label for="tfNoshow">Strafe „nicht erschienen“ (€)<input id="tfNoshow" type="number" min="0" step="0.5" value="${tf.noshow}"></label>
+    </div>
+    <div class="row" style="margin-top:10px"><button class="primary" id="btnTariffs">Speichern</button></div>
+    <p class="muted">Posten entstehen nur für Termine ab diesem Datum – frühere Spesen gelten als beglichen. Die Saison beginnt am 1. September; für eine neue Saison einfach die Beträge der nächsten Saison speichern.</p>`;
+}
+
+function renderMyFees(){
+  const pid = S.me?.playerId, box = $("#myFees"), panel = $("#myFeesPanel");
+  panel.hidden = !pid || !S.roster[pid] || kasseStart() === null;
+  if (panel.hidden) return;
+  const open = openCharges(pid), sum = open.reduce((s, c) => s + c.amount, 0), plan = planOf(pid);
+  box.innerHTML = `<p>Beitragsart: <b>${PLANS[plan]}</b></p>
+    <p class="${sum > 0 ? "note warn" : "note"}">${sum > 0 ? `Offen: <b>${euro(sum)}</b> – bitte beim Kassier begleichen.` : "Alles bezahlt. Danke!"}</p>
+    ${open.length ? `<div class="plist">${open.map(c => `<div class="charge"><span>${esc(c.label)}</span><b>${euro(c.amount)}</b></div>`).join("")}</div>` : ""}`;
+}
+
 /* ---------- team info ---------- */
 const SEEN_KEY = "stars-news-seen";
 const seenAt = () => { try { return +localStorage.getItem(SEEN_KEY) || 0; } catch { return 0; } };
@@ -1218,7 +1388,7 @@ function renderKonto(){
   $("#userEmail").textContent = S.user?.email || "";
   $("#netState").textContent = navigator.onLine ? "" : "· offline – Änderungen werden übertragen, sobald wieder Netz da ist";
   const my = S.me?.playerId && (S.roster[S.me.playerId]?.name);
-  $("#roleInfo").textContent = (isTrainer() ? "Rolle: Trainer" : "Rolle: Mitspieler") + (my ? ` · Spieler: ${my}` : "");
+  $("#roleInfo").textContent = (isTrainer() ? "Rolle: Trainer" : S.role === "cashier" ? "Rolle: Kassier" : "Rolle: Mitspieler") + (my ? ` · Spieler: ${my}` : "");
 }
 
 function teamsText(t, tm){
@@ -1310,6 +1480,16 @@ document.addEventListener("click", e => {
     }
     else if (t.id==="btnLogout" || t.id==="btnLogout2") confirmBtn(t, async () => { await disablePush(true); fb.A.signOut(fb.auth); });
     else if (t.dataset.ics) { const x = S.trainings.find(y => y.id === t.dataset.ics); if (x) downloadIcs(x); }
+    else if (t.dataset.kopen) { S.openKasse = S.openKasse === t.dataset.kopen ? null : t.dataset.kopen; renderKasse(); }
+    else if (t.dataset.payall) { const pid = t.dataset.payall; api.setPaid(pid, openCharges(pid).map(c => c.key), true); status(`${S.roster[pid]?.name || "Spieler"}: alles bezahlt.`); }
+    else if (t.id==="btnTariffs") {
+      const num = id => Number($(id).value), vals = {annual: num("#tfAnnual"), training: num("#tfTraining"), student: num("#tfStudent"), noshow: num("#tfNoshow")};
+      if (Object.values(vals).some(v => !Number.isFinite(v) || v < 0 || v > 10000) || $("#tfAnnual").value === "") { status("Bitte alle Beträge als Zahl ab 0 eingeben.", true); return; }
+      const d = $("#tfStart").value; if (!d) { status("Bitte das Startdatum der Kasse wählen.", true); return; }
+      const [yy, mm, dd] = d.split("-").map(Number);
+      api.setTariffs(+$("#tariffSeason").value, new Date(yy, mm - 1, dd).getTime(), vals);
+      status("Tarife gespeichert.");
+    }
     else if (t.id==="btnPushOn") enablePush();
     else if (t.id==="btnPushOff") disablePush(false);
     else if (t.id==="btnPushTest") testPush();
@@ -1325,6 +1505,15 @@ document.addEventListener("click", e => {
 document.addEventListener("change", e => {
   const el = e.target;
   if (el.id === "statRange") { renderStats(); return; }
+  if (el.id === "kasseFilter" || el.id === "tariffSeason") { renderKasse(); return; }
+  if (el.dataset.plan) { api.setPlan(el.dataset.plan, el.value); return; }
+  if (el.dataset.paid) { api.setPaid(el.dataset.paid, [el.dataset.key], el.checked); return; }
+  if (el.dataset.gcost) { const v = Number(el.value || 0); if (!Number.isFinite(v) || v < 0 || v > 1000) { status("Bitte einen Betrag von 0 bis 1000 eingeben.", true); return; } api.setGameCost(el.dataset.gcost, Math.round(v * 100) / 100); return; }
+  if (el.dataset.cashier) {
+    const p = S.players[el.dataset.cashier], em = (p?.email || "").toLowerCase();
+    if (!em) { el.checked = false; return; }
+    api.setCashier(p.id, em, el.checked); status(el.checked ? `${p.name} ist jetzt Kassier.` : `${p.name} ist nicht mehr Kassier.`); return;
+  }
   if (el.id === "resFilter") { closePast(); renderResults(); return; }
   const tg = selTraining();
   if (el.dataset.slot && tg && draftLines(tg)) {
@@ -1374,7 +1563,7 @@ window.addEventListener("hashchange", () => { closePast(); closeMenu(); render()
 window.addEventListener("online", render);
 window.addEventListener("offline", render);
 // Re-evaluate deadlines now and then while the app stays open
-setInterval(() => { splitTrainings(); if (["training","statistik","ergebnisse"].includes(view())) render(); }, 60000);
+setInterval(() => { splitTrainings(); if (["training","statistik","ergebnisse","kasse","konto"].includes(view())) render(); }, 60000);
 
 /* ---------- backup ---------- */
 let pendingImport = null;
