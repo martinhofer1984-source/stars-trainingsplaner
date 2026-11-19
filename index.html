@@ -90,6 +90,8 @@ label.inline{display:flex;gap:6px;align-items:center;font-size:13.5px;color:var(
 .team.l.off{border-style:dashed}
 .tp select{padding:2px 6px;font-size:13px}
 .plist{display:grid;gap:8px}
+.row.cal{align-items:center;flex-wrap:wrap;gap:8px;margin-top:10px}
+a.btn{text-decoration:none;display:inline-block}
 .news{display:grid;gap:10px}
 .nitem{border:1px solid var(--line);border-radius:10px;padding:10px 12px;background:var(--surface-2);display:grid;gap:4px}
 .nitem.unread{border-color:var(--gold)}
@@ -768,7 +770,11 @@ function renderDetail(){
     ${t.note ? `<p>${esc(t.note)}</p>` : ""}
     ${t.cancelled ? `<p class="note warn">Dieser Termin fällt aus.</p>` : mine}
     ${t.cancelled ? "" : `<div class="names"><b>Dabei (${ins.length}):</b> Tor ${cnt("G")} · Verteidigung ${cnt("D")} · Sturm ${cnt("O")}<br>${ins.map(r=>esc(r.name)).join(", ") || "–"}</div>
-    <div class="names"><b>Abgesagt (${outs.length}):</b> ${outs.map(r=>esc(r.name)).join(", ") || "–"}</div>`}
+    <div class="names"><b>Abgesagt (${outs.length}):</b> ${outs.map(r=>esc(r.name)).join(", ") || "–"}</div>
+    <div class="row cal"><span class="muted">In meinen Kalender:</span>
+      <a class="btn" href="${esc(googleCalUrl(t))}" target="_blank" rel="noopener">Google Kalender</a>
+      <button data-ics="${esc(t.id)}">Kalenderdatei (iPhone, Outlook)</button>
+    </div>`}
     <div class="row trainer-only">
       <button data-tcancel="${esc(t.id)}">${t.cancelled ? "Termin findet doch statt" : "Termin absagen"}</button>
       <button class="danger" data-tdel="${esc(t.id)}">Termin löschen</button>
@@ -1089,6 +1095,34 @@ function renderResults(){
       }).join("")}</div>`;
 }
 
+/* ---------- calendar export ---------- */
+// One appointment for the own calendar: a Google Calendar link or an .ics file (Apple, Outlook, others)
+const APP_URL = "https://stars-trainingsplaner.firebaseapp.com/";
+const calEnd = t => endOf(t) ?? t.start + OVER_FALLBACK_MS;
+const calTitle = t => `Stars – ${kindOf(t)}`;
+const calText = t => `${kindOf(t)} der Stars. Zu- und Absagen in der App: ${APP_URL}`;
+const utcStamp = ms => new Date(ms).toISOString().replace(/[-:]/g, "").replace(/\.\d{3}/, "");
+function googleCalUrl(t){
+  const q = new URLSearchParams({action: "TEMPLATE", text: calTitle(t), dates: `${utcStamp(t.start)}/${utcStamp(calEnd(t))}`, details: calText(t), location: t.place || ""});
+  return "https://calendar.google.com/calendar/render?" + q.toString();
+}
+const icsEsc = s => String(s).replace(/\\/g, "\\\\").replace(/\n/g, "\\n").replace(/([,;])/g, "\\$1");
+function icsOf(t){
+  return ["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//Stars//Trainingsplaner//DE", "CALSCALE:GREGORIAN", "METHOD:PUBLISH",
+    "BEGIN:VEVENT", `UID:${t.id}@stars-trainingsplaner`, `DTSTAMP:${utcStamp(Date.now())}`,
+    `DTSTART:${utcStamp(t.start)}`, `DTEND:${utcStamp(calEnd(t))}`,
+    `SUMMARY:${icsEsc(calTitle(t))}`, ...(t.place ? [`LOCATION:${icsEsc(t.place)}`] : []),
+    `DESCRIPTION:${icsEsc(calText(t))}`, `URL:${APP_URL}`,
+    "END:VEVENT", "END:VCALENDAR", ""].join("\r\n");
+}
+function downloadIcs(t){
+  const d = new Date(t.start), name = `stars-${kindOf(t).toLowerCase()}-${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}.ics`;
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([icsOf(t)], {type: "text/calendar;charset=utf-8"}));
+  a.download = name; document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+}
+
 /* ---------- team info ---------- */
 const SEEN_KEY = "stars-news-seen";
 const seenAt = () => { try { return +localStorage.getItem(SEEN_KEY) || 0; } catch { return 0; } };
@@ -1275,6 +1309,7 @@ document.addEventListener("click", e => {
       finishEmailLink(email, link);
     }
     else if (t.id==="btnLogout" || t.id==="btnLogout2") confirmBtn(t, async () => { await disablePush(true); fb.A.signOut(fb.auth); });
+    else if (t.dataset.ics) { const x = S.trainings.find(y => y.id === t.dataset.ics); if (x) downloadIcs(x); }
     else if (t.id==="btnPushOn") enablePush();
     else if (t.id==="btnPushOff") disablePush(false);
     else if (t.id==="btnPushTest") testPush();
