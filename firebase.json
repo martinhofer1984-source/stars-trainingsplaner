@@ -18,7 +18,8 @@
       ".firebase/**",
       "**/*.json",
       "**/node_modules/**",
-      "functions/**"
+      "functions/**",
+      "docs-src/**"
     ],
     "headers": [
       {

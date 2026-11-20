@@ -1,0 +1,197 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<title>Stars-App – Anleitung für Trainer</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header>
+  <img class="logo" src="img/logo.png" alt="Stars">
+  <div>
+    <h1>Stars<span>·</span>App für Trainer</h1>
+    <p>Termine, Anwesenheit, Teams und Linien, Spieler, Ergebnisse, Statistik</p>
+  </div>
+</header>
+
+<div class="start">
+  <div>
+    <b>Als Trainer</b> kannst du alles, was ein Spieler kann, und zusätzlich die Mannschaft verwalten. Diese Anleitung beschreibt nur die <b>Trainer-Funktionen</b> – Anmelden, Installieren, Push und Zusagen stehen in der Spieler-Anleitung. Alle Anleitungen findest du in der App unter Menü → <b>Downloads</b>. Die App: <b class="url">stars-trainingsplaner.firebaseapp.com</b>
+    <div class="muted" style="margin-top:4px">Die Bilder zeigen Beispieldaten. Rot umrandet ist jeweils der Knopf, um den es geht. Trainer-Rechte vergibt der Entwickler (Martin) – in der App selbst nicht.</div>
+  </div>
+  <img src="img/qr.svg" alt="QR-Code zur App">
+</div>
+
+<div class="step">
+  <div class="phone short"><img src="img/t-menu.jpg" alt=""></div>
+  <div>
+    <h3>Dein Menü</h3>
+    <p>Oben rechts <span class="ui">☰</span>. Zusätzlich zu Termine, Team-Info, Downloads und Konto hast du:</p>
+    <ul>
+      <li><b>Spieler</b> – Kader, Stärken, Zugänge</li>
+      <li><b>Ergebnisse</b> – Ergebnis und „nicht erschienen“ nach dem Termin</li>
+      <li><b>Kasse</b> – Beiträge, Strafen, Kassenbuch (siehe Kassier-Anleitung)</li>
+      <li><b>Statistik</b> – Anwesenheit, Siege und Niederlagen je Spieler</li>
+    </ul>
+    <div class="note">Stärken, Team-Entwürfe, Spielerliste, Ergebnisse und Statistik sehen <b>nur Trainer</b>.</div>
+  </div>
+</div>
+
+<h2>1 · Termin anlegen</h2>
+<div class="step">
+  <div class="phone short"><img src="img/t-neu.jpg" alt=""></div>
+  <div>
+    <ol>
+      <li>Menü → <span class="ui">Termine</span>, unter der Liste <span class="ui">Neuen Termin anlegen</span> antippen.</li>
+      <li><b>Beginn</b> (Datum und Uhrzeit), <b>Ort</b>, <b>Art</b> (Training oder Spiel) und <b>Dauer</b> wählen.</li>
+      <li><span class="ui">Termin anlegen</span> tippen (rot markiert).</li>
+    </ol>
+    <p>Alle Spieler mit Zugang sind automatisch <b>dabei</b> und bekommen eine Push-Nachricht „Neuer Termin“.</p>
+    <div class="note"><b>Nachträglich ändern</b> lassen sich Zeit, Ort und Art nicht – dann den Termin löschen und neu anlegen. Termine in der Vergangenheit lassen sich nicht anlegen.</div>
+  </div>
+</div>
+<div class="ex"><b class="t">Beispiel:</b> Spiel am Samstag in Burgstall, 21:30, 1½ Stunden → Beginn Sa 21:30 · Ort „Burgstall“ · Art <b>Spiel</b> · Dauer <b>1 Std. 30 Min.</b> → <span class="ui">Termin anlegen</span>. Die Spieler sehen sofort „Spiel · Sa · 21:30–23:00 Uhr“.</div>
+
+<h2>2 · Termin absagen oder löschen</h2>
+<div class="step">
+  <div class="phone" style="height:74mm"><img src="img/t-tcancel.jpg" alt="" style="height:100%;object-fit:cover;object-position:top"></div>
+  <div>
+    <ul>
+      <li><span class="ui">Termin absagen</span> – der Termin bleibt sichtbar, steht als „fällt aus“ da, alle bekommen eine Push-Nachricht. Mit <span class="ui">Termin findet doch statt</span> machst du es rückgängig.</li>
+      <li><span class="ui">Termin löschen</span> – entfernt den Termin ganz (mit Zusagen, Teams, Ergebnis). Zur Sicherheit <b>zweimal tippen</b> („Sicher? Nochmal tippen“).</li>
+    </ul>
+    <div class="note warn">Fällt ein Training aus, lieber <b>absagen</b> statt löschen – dann wissen alle Bescheid.</div>
+  </div>
+</div>
+
+<h2>3 · Anwesenheit</h2>
+<div class="step">
+  <div class="phone short"><img src="img/t-anwesend.jpg" alt=""></div>
+  <div>
+    <p>Beim Termin im Feld <b>Anwesend</b> stehen alle aktiven Spieler nach Position, mit Stärke. <b>Hell</b> = dabei, <b>dunkel</b> = abgesagt.</p>
+    <ul>
+      <li>Ein Spieler antippen schaltet zwischen dabei und abgesagt um – das geht für dich <b>jederzeit</b>, auch nach der 24-h-Frist.</li>
+      <li><b>Gäste ohne Zugang</b> haben einen gestrichelten Rand und sind <b>nicht</b> automatisch dabei: Wenn ein Gast kommt, antippen (im Bild: Gustav).</li>
+    </ul>
+    <div class="ex"><b class="t">Beispiel:</b> Leon ruft am Trainingstag an und kann nicht → Termin antippen → bei Anwesend <b>Leon</b> antippen → er ist abgesagt.</div>
+  </div>
+</div>
+
+<h2>4 · Teams für Trainings</h2>
+<div style="display:flex;gap:14px;justify-content:center;break-inside:avoid;margin:6px 0 10px">
+  <div><div class="phone" style="height:92mm"><img src="img/t-teamsliste.jpg" alt="" style="height:100%;object-fit:cover;object-position:top"></div><div class="sklabel" style="text-align:center">Entwurf mit Stärken und Pfeilen</div></div>
+  <div><div class="phone" style="height:92mm"><img src="img/t-teamsfrei.jpg" alt="" style="height:100%;object-fit:cover;object-position:top"></div><div class="sklabel" style="text-align:center">Darunter: Teams freigeben</div></div>
+</div>
+<ol>
+  <li>Wenn die Zusagen stehen: <span class="ui">Teams erzeugen</span>. Torhüter, Verteidiger und Stürmer werden gleichmäßig verteilt, aus tausenden Varianten wird eine sehr ausgeglichene gewählt. Mit <b>Zufall</b> (aus / wenig / normal / viel) bestimmst du, wie stark gemischt wird.</li>
+  <li>Das ist erst ein <b>Entwurf</b> – nur Trainer sehen ihn. Mit den Pfeilen <span class="ui">→</span> / <span class="ui">←</span> schiebst du einzelne Spieler ins andere Team, <span class="ui">Neu mischen</span> erzeugt eine neue Einteilung. Darunter siehst du den Unterschied im Schnitt und die erwartete Siegchance.</li>
+  <li><span class="ui">Teams freigeben</span> (rot markiert) – jetzt sehen alle Spieler die Teams (ohne Stärken) und bekommen eine Push-Nachricht.</li>
+  <li>Spätere Änderungen erst mit <span class="ui">Änderungen freigeben</span> sichtbar machen. <span class="ui">Freigabe zurückziehen</span> blendet die Teams für die Spieler wieder aus.</li>
+</ol>
+<div class="note">Ändert sich nach der Einteilung die Anwesenheit, erscheint ein Hinweis – dann neu mischen oder Spieler verschieben und erneut freigeben.</div>
+
+<h2>5 · Linien für Spiele</h2>
+<div class="step">
+  <div class="phone short"><img src="img/t-linienplan.jpg" alt=""></div>
+  <div>
+    <ol>
+      <li>Beim Spiel <span class="ui">Vorschlag erstellen</span> (rot markiert): Torhüter ins Tor, dazu so viele Linien wie nötig – <b>2 Verteidiger</b> bzw. <b>3 Stürmer</b> je Linie, höchstens 4 Linien – und alle etwa gleich stark. Nochmal tippen ergibt eine andere ausgewogene Verteilung.</li>
+      <li>Die Anzahl der Linien kannst du bei <b>Verteidigung</b> und <b>Sturm</b> ändern.</li>
+      <li>Jeden Spieler über die Auswahl rechts (Tor, V1, V2, S1 …) umsetzen. Die Klammer zeigt die Belegung, z. B. „S1 (3/3)“.</li>
+      <li><span class="ui">Linien freigeben</span> – Spieler sehen die Linien und bekommen eine Push-Nachricht.</li>
+    </ol>
+    <div class="note warn">Du darfst eine Linie beim Umsetzen <b>überbelegen</b> (z. B. 3 Verteidiger). Freigeben geht aber erst, wenn keine Linie mehr zu viele Spieler hat.</div>
+  </div>
+</div>
+
+<h2>6 · Spieler verwalten</h2>
+<div class="step">
+  <div class="phone short"><img src="img/t-spieler.jpg" alt=""></div>
+  <div>
+    <p>Menü → <span class="ui">Spieler</span>. Oben legst du neue Spieler an (Name, Nummer, Position, Stärke) → <span class="ui">Spieler anlegen</span>. In der Liste änderst du direkt:</p>
+    <table class="faq">
+      <tr><td>Name, Nr., Position</td><td>einfach überschreiben – wird sofort gespeichert</td></tr>
+      <tr><td>Stärke 1–10</td><td>für die Team- und Linien-Vorschläge, nur für Trainer sichtbar</td></tr>
+      <tr><td>Zugang (E-Mail)</td><td>mit Adresse kann sich der Spieler anmelden und ist automatisch dabei; ohne Adresse ist er <b>Gast</b></td></tr>
+      <tr><td>Kassier</td><td>Häkchen = dieser Spieler verwaltet die Kasse (nur mit E-Mail)</td></tr>
+      <tr><td>Aktiv</td><td>Haken weg = pausiert (verletzt, Pause): nicht mehr automatisch dabei, kann aber selbst zusagen</td></tr>
+      <tr><td>Löschen</td><td>zweimal tippen; entfernt auch den Zugang</td></tr>
+    </table>
+    <p class="muted">Am PC ist die Tabelle breiter und übersichtlicher. Auf eine Spaltenüberschrift tippen sortiert.</p>
+  </div>
+</div>
+<div class="ex"><b class="t">Beispiel:</b> Neuer Spieler „Jakob“, Stürmer, Nummer 21 → Name, 21, Sturm, Stärke 6 → <span class="ui">Spieler anlegen</span> → in der Liste bei „Zugang“ seine Gmail-Adresse eintragen → er kann sich anmelden und ist ab sofort bei allen Terminen dabei.</div>
+
+<h2>7 · Nach dem Termin: Ergebnisse</h2>
+<div class="step">
+  <div class="phone short"><img src="img/t-ergebnisse.jpg" alt=""></div>
+  <div>
+    <ol>
+      <li>Menü → <span class="ui">Ergebnisse</span>. Unter „Offen“ stehen vergangene Termine ohne Ergebnis.</li>
+      <li><span class="ui">Erfassen</span> tippen. <b>Spiel:</b> Stars : Gegner, <b>Training:</b> Team A : Team B eintragen.</li>
+      <li>Darunter alle, die zugesagt hatten (hell = war da). Wer <b>nicht gekommen</b> ist, antippen – das gibt die Strafe „nicht erschienen“ in der Kasse.</li>
+      <li><span class="ui">Fertig</span> (rot markiert) speichert alles.</li>
+    </ol>
+    <div class="note">Ein Termin erscheint hier, sobald er <b>zu Ende</b> ist. Bei Trainings zählt das Ergebnis nur, wenn Teams freigegeben waren.</div>
+  </div>
+</div>
+
+<h2>8 · Statistik und Team-Info</h2>
+<div class="step">
+  <div class="phone short"><img src="img/t-statistik.jpg" alt=""></div>
+  <div>
+    <h3>Statistik</h3>
+    <p>Je Spieler: besuchte Trainings und Spiele, nicht erschienen, <b>S/U/N</b> (Siege, Unentschieden, Niederlagen) und die Quote. Zeitraum: Saison (ab 1. September), Kalenderjahr oder alle. Antippen einer Spalte sortiert, <span class="ui">Als Excel-Datei exportieren</span> lädt die Tabelle für Excel.</p>
+  </div>
+</div>
+<div class="step">
+  <div class="phone short"><img src="img/t-infoneu.jpg" alt=""></div>
+  <div>
+    <h3>Nachricht an alle (Team-Info)</h3>
+    <ol>
+      <li>Menü → <span class="ui">Team-Info</span> → <span class="ui">Neue Nachricht an alle</span>.</li>
+      <li>Titel und Text eingeben → <span class="ui">Senden</span>.</li>
+    </ol>
+    <p>Alle sehen die Nachricht in der App, und wer Push eingeschaltet hat, bekommt sie aufs Handy. Nach 7 Tagen verschwindet sie automatisch; mit <span class="ui">Löschen</span> sofort.</p>
+  </div>
+</div>
+
+<h2>9 · Kasse und Strafen</h2>
+<div class="step">
+  <div class="phone short"><img src="img/k-strafe.jpg" alt=""></div>
+  <div>
+    <p>In der <b>Kasse</b> kannst du alles, was der Kassier kann (siehe Kassier-Anleitung). <b>Nur Trainer</b> können zusätzlich <b>Strafen vergeben</b> und wieder löschen.</p>
+    <div class="ex"><b class="t">Beispiel:</b> Tom hat das Trikot vergessen → Menü → <span class="ui">Kasse</span> → <span class="ui">Strafe vergeben</span> → Spieler „Tom“, Grund „Trikot vergessen“, Betrag 5 → <span class="ui">Strafe vergeben</span> (rot markiert). Tom sieht sie unter Konto, der Kassier hakt sie ab, sobald bezahlt. Falsch eingegeben? Unten bei der Strafe <span class="ui">Löschen</span> (zweimal tippen) und neu vergeben.</div>
+  </div>
+</div>
+
+<h2>10 · Kassenbuch kontrollieren</h2>
+<div class="step">
+  <div class="phone"><img src="img/k-kassenbuch.jpg" alt=""></div>
+  <div>
+    <p>Oben in der Kasse stehen der <b>Kassenstand</b> sowie alle <b>Ausgaben</b> (Eisstunden, Schiri …) und <b>Korrekturen</b>. Eintragen kannst du sie genauso wie der Kassier (siehe Kassier-Anleitung).</p>
+    <h3>Vier-Augen-Prinzip</h3>
+    <ul>
+      <li>Jeden Eintrag muss eine <b>zweite Person</b> bestätigen – ein anderer Trainer oder der Kassier.</li>
+      <li>Wartet etwas auf <b>deine</b> Bestätigung, zeigt die Menütaste und der Punkt „Kasse“ eine Zahl.</li>
+      <li>Eintrag prüfen (Betrag, Grund, Beleg) → <span class="ui">Bestätigen</span> (rot markiert).</li>
+      <li>Stimmt etwas nicht: nicht bestätigen, sondern mit dem Kassier klären. Unbestätigte Einträge kannst du als Trainer auch <span class="ui">Löschen</span>.</li>
+      <li>Bestätigte Einträge sind endgültig – Fehler werden mit einer Korrektur ausgeglichen.</li>
+    </ul>
+  </div>
+</div>
+<div class="ex"><b class="t">Beispiel:</b> Simon trägt „Schiri Spiel Burgstall – 40 €“ ein → bei dir erscheint eine <b>1</b> am Menü → Menü → <span class="ui">Kasse</span> → Eintrag prüfen → <span class="ui">Bestätigen</span>. Darunter steht dann „✔ bestätigt von …“.</div>
+
+<h2>Gut zu wissen</h2>
+<table class="faq">
+  <tr><td>Spieler sagt nach der Frist ab</td><td>Beim Termin unter „Anwesend“ antippen – Trainer dürfen immer ändern.</td></tr>
+  <tr><td>Gast spielt mit</td><td>Bei Anwesend antippen. Hat er öfter dabei zu sein, in der Spielerliste anlegen; mit E-Mail wird er regulärer Spieler.</td></tr>
+  <tr><td>Spieler kann sich nicht anmelden</td><td>In der Spielerliste prüfen, ob seine Adresse genau stimmt (die, mit der er sich anmeldet).</td></tr>
+  <tr><td>Neuer Co-Trainer</td><td>Trainer-Rechte vergibt der Entwickler (Martin).</td></tr>
+  <tr><td>Etwas sieht anders aus</td><td>App schließen und neu öffnen – dann ist die neueste Version da.</td></tr>
+</table>
+
+<footer>Stars · Trainingsplaner · Anleitung für Trainer · Stand November 2026</footer>
+</body>
+</html>
