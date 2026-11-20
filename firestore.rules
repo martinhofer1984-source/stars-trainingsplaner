@@ -197,6 +197,16 @@ service cloud.firestore {
                 && request.resource.data.votes[myPlayerId()] < resource.data.options.size()));
     }
 
+    // Calendar subscription: a secret token per member; only the calendar function reads the feed
+    match /calfeeds/{token} {
+      allow read, delete: if signedIn() && resource.data.email == myEmail();
+      allow create: if isMember()
+        && token.matches('^[a-f0-9]{32,64}$')
+        && request.resource.data.keys().hasOnly(['email', 'at'])
+        && request.resource.data.email == myEmail()
+        && request.resource.data.at == request.time;
+    }
+
     // Player profile: the birthday (month-day, no year) is entered by the player in the app
     match /profiles/{pid} {
       allow read: if isMember();

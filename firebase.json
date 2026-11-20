@@ -22,6 +22,9 @@
       "functions/**",
       "docs-src/**"
     ],
+    "rewrites": [
+      { "source": "/kalender", "function": { "functionId": "calendar", "region": "europe-west1" } }
+    ],
     "headers": [
       {
         "source": "/@(sw.js|index.html)",

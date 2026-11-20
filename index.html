@@ -204,6 +204,8 @@ details.new summary{cursor:pointer;font-weight:600;padding-block:4px}
 #testBanner[hidden]{display:none}
 #calAll{margin-top:10px}
 #calAll[hidden]{display:none}
+#calSubBox{margin-top:10px;display:grid;gap:8px}
+#calSubBox[hidden]{display:none}
 #testBanner button{padding:3px 10px;font-size:12.5px}
 #testBanner select{padding:2px 6px;font-size:12.5px;max-width:210px;margin-left:4px}
 #testBanner label[hidden]{display:none}
@@ -250,7 +252,8 @@ td input.email{width:220px}
     <h2>Termine <small id="tCount"></small></h2>
     <div id="todoBox" class="note todo" hidden></div>
     <div id="tList" class="tlist"></div>
-    <div class="row" id="calAll"><button id="btnIcsAll">Alle Termine in meinen Kalender</button></div>
+    <div class="row" id="calAll"><button id="btnIcsAll">Alle Termine in meinen Kalender</button><button id="btnCalSub">Kalender abonnieren</button></div>
+    <div id="calSubBox" class="note" hidden></div>
     <details class="new" id="newAbsence">
       <summary>Krank oder im Urlaub? Abwesenheit melden</summary>
       <div class="form">
@@ -1570,6 +1573,29 @@ function saveIcs(name, list){
   a.download = name; document.body.appendChild(a); a.click(); a.remove();
   setTimeout(() => URL.revokeObjectURL(a.href), 5000);
 }
+// Calendar subscription: a personal secret link (token in "calfeeds"); the calendar app fetches
+// the current appointments from the server function "calendar" by itself (hosting path /kalender)
+async function calFeedToken(renew){
+  const F = fb.F, col = F.collection(fb.db, "calfeeds");
+  const snap = await F.getDocs(F.query(col, F.where("email", "==", S.me.email)));
+  if (renew) await Promise.all(snap.docs.map(d => F.deleteDoc(d.ref)));
+  else if (!snap.empty) return snap.docs[0].id;
+  const token = [...crypto.getRandomValues(new Uint8Array(20))].map(x => x.toString(16).padStart(2, "0")).join("");
+  await F.setDoc(F.doc(col, token), {email: S.me.email, at: F.serverTimestamp()});
+  return token;
+}
+async function openCalSub(renew){
+  const box = $("#calSubBox"); box.hidden = false; box.textContent = "Abo-Link wird erstellt …";
+  try {
+    const token = await calFeedToken(renew);
+    const https = `${APP_URL}kalender?k=${token}${TEST_DB ? "&db=test" : ""}`, webcal = https.replace(/^https:/, "webcal:");
+    box.innerHTML = `<span><b>Kalender abonnieren:</b> Neue, geänderte und ausgefallene Termine kommen von selbst in deinen Kalender, mit deinem Stand (abgesagt, Warteliste). Je nach Kalender dauert eine Änderung bis zu einigen Stunden.</span>
+      <div class="row"><a class="btn primary" href="${esc(webcal)}">iPhone, Mac, Outlook</a>
+        <a class="btn" href="https://calendar.google.com/calendar/render?cid=${encodeURIComponent(webcal)}" target="_blank" rel="noopener">Google Kalender</a>
+        <button data-copy="${esc(https)}">Link kopieren</button></div>
+      <span class="muted">Der Link ist persönlich – bitte nicht weitergeben. <button data-calrenew>Neuen Link erstellen</button> macht den alten ungültig.</span>`;
+  } catch (e) { box.textContent = "Der Abo-Link konnte nicht erstellt werden (" + (e?.code || e?.message || "Fehler") + "). Ist das Internet an?"; }
+}
 // All coming appointments in one file
 function downloadAllIcs(){
   if (!S.trainings.length) { status("Es sind keine Termine geplant.", true); return; }
@@ -2006,6 +2032,9 @@ document.addEventListener("click", e => {
       api.setBirthday(`${mm}-${dd}`); status("Geburtstag gespeichert.");
     }
     else if (t.id === "btnIcsAll") downloadAllIcs();
+    else if (t.id === "btnCalSub") { if ($("#calSubBox").hidden) openCalSub(false); else $("#calSubBox").hidden = true; }
+    else if ("calrenew" in t.dataset) confirmBtn(t, () => openCalSub(true));
+    else if (t.dataset.copy) copy(t.dataset.copy, t);
     else if (t.id === "btnDbSwitch") switchDb(!TEST_DB);
     else if (t.id === "btnLiveDb") switchDb(false);
     else if ("dbfill" in t.dataset) confirmBtn(t, () => fillTestDb(t));

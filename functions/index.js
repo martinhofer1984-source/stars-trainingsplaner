@@ -341,3 +341,44 @@ exports.testViewAs = onCall(async req => {
   logger.info(`test view of ${email}: ${doc.role} ${doc.playerId || ""}`);
   return doc;
 });
+
+// ---------- calendar subscription ----------
+// Personal calendar feed: the app stores a secret token in "calfeeds/{token}" ({email}); the
+// calendar app fetches /kalender?k=<token> (hosting rewrite) regularly. The feed shows the coming
+// appointments (and those of the last 30 days) with the member's own answer in the title.
+const { onRequest } = require("firebase-functions/v2/https");
+const icsEsc = s => String(s).replace(/\\/g, "\\\\").replace(/\n/g, "\\n").replace(/([,;])/g, "\\$1");
+const utcStamp = ms => new Date(ms).toISOString().replace(/[-:]/g, "").replace(/\.\d{3}/, "");
+exports.calendar = onRequest({ cors: false }, async (req, res) => {
+  const k = String(req.query.k || ""), testDb = req.query.db === "test";
+  if (!/^[a-f0-9]{32,64}$/.test(k)) { res.status(404).send("Kalender nicht gefunden"); return; }
+  const db = testDb ? getFirestore("test") : getFirestore();
+  const feed = await db.collection("calfeeds").doc(k).get();
+  const member = feed.exists ? await db.collection("members").doc(String(feed.data().email || "")).get() : null;
+  if (!member || !member.exists) { res.status(404).send("Kalender nicht gefunden"); return; }
+  const pid = member.data().playerId || "";
+  const now = Date.now();
+  const [snap, r, a] = await Promise.all([
+    db.collection("trainings").where("start", ">=", Timestamp.fromMillis(now - 30 * 24 * 3600e3)).get(),
+    db.collection("roster").get(), db.collection("absences").get()]);
+  const d = { roster: {}, absences: a.docs.map(x => ({ ...x.data(), id: x.id, at: ms(x.data().at) })) };
+  r.forEach(x => { d.roster[x.id] = x.data(); });
+  const STATE = { out: "abgesagt", wait: "Warteliste" };
+  const events = snap.docs.map(x => {
+    const t = plainTraining(x.id, x.data()), end = t.start + (Number.isFinite(t.duration) && t.duration > 0 ? t.duration : 120) * 60000;
+    const ans = pid && d.roster[pid] && !t.cancelled ? core.answerOf(d, t, pid) : "";
+    const extra = t.cancelled ? " (fällt aus)" : STATE[ans] ? ` (${STATE[ans]})` : "";
+    const mine = ans === "in" ? "Du bist dabei." : ans === "out" ? "Du hast abgesagt." : ans === "wait" ? "Du stehst auf der Warteliste." : "";
+    return ["BEGIN:VEVENT", `UID:${x.id}@stars-trainingsplaner`, `DTSTAMP:${utcStamp(now)}`,
+      `DTSTART:${utcStamp(t.start)}`, `DTEND:${utcStamp(end)}`,
+      `SUMMARY:${icsEsc(`Stars – ${kindOf(t)}${extra}`)}`, ...(t.place ? [`LOCATION:${icsEsc(t.place)}`] : []),
+      `DESCRIPTION:${icsEsc(`${kindOf(t)} der Stars. ${mine} Zu- und Absagen in der App: ${APP_URL}`)}`, `URL:${APP_URL}`,
+      ...(t.cancelled ? ["STATUS:CANCELLED"] : []), "END:VEVENT"];
+  });
+  const ics = ["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//Stars//Trainingsplaner//DE", "CALSCALE:GREGORIAN", "METHOD:PUBLISH",
+    `X-WR-CALNAME:Stars${testDb ? " (Test)" : ""}`, "REFRESH-INTERVAL;VALUE=DURATION:PT1H", "X-PUBLISHED-TTL:PT1H",
+    ...events.flat(), "END:VCALENDAR", ""].join("\r\n");
+  res.set("Content-Type", "text/calendar; charset=utf-8");
+  res.set("Cache-Control", "private, max-age=300");
+  res.send(ics);
+});
