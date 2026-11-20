@@ -109,12 +109,12 @@ async function syncWait(id, before, after) {
 async function materialPush(id, b, a) {
   const mb = b.material || {}, ma = a.material || {};
   if (ma.pid && ma.state === "asked" && (mb.pid !== ma.pid || mb.state !== "asked"))
-    return pushPlayers([ma.pid], { title: "Kannst du das Material mitnehmen?", body: `${kindOf(a)} ${when(a)}: Bitte in der App zusagen oder absagen.`, link: "#termin-" + id, tag: "mat-" + id });
+    return pushPlayers([ma.pid], { title: "Kannst du die Trikots mitnehmen?", body: `${kindOf(a)} ${when(a)}: Bitte in der App zusagen oder absagen.`, link: "#termin-" + id, tag: "mat-" + id });
   if (ma.pid && mb.pid === ma.pid && mb.state === "asked" && (ma.state === "yes" || ma.state === "no")) {
     const name = await nameOf(ma.pid);
     return pushTrainers(ma.state === "yes"
-      ? { title: "Material ist organisiert", body: `${name} nimmt das Material mit (${kindOf(a)} ${when(a)}).`, link: "#termin-" + id, tag: "mat-" + id }
-      : { title: "Material: Absage", body: `${name} kann das Material nicht mitnehmen (${kindOf(a)} ${when(a)}). Bitte jemand anderen fragen.`, link: "#termin-" + id, tag: "mat-" + id });
+      ? { title: "Trikots sind organisiert", body: `${name} nimmt die Trikots mit (${kindOf(a)} ${when(a)}).`, link: "#termin-" + id, tag: "mat-" + id }
+      : { title: "Trikots: Absage", body: `${name} kann die Trikots nicht mitnehmen (${kindOf(a)} ${when(a)}). Bitte jemand anderen fragen.`, link: "#termin-" + id, tag: "mat-" + id });
   }
 }
 

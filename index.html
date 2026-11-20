@@ -971,18 +971,18 @@ function materialHTML(t){
   const m = materialOf(t); if (!m) return "";
   const nm = pid => esc(S.roster[pid]?.name || "?"), my = S.me?.playerId;
   const kNames = m.keepers.map(r => esc(r.name)).join(", ");
-  if (m.state === "keeper") return `<p class="muted">Material: ${m.pid === my ? "du" : nm(m.pid)}</p>`;
-  if (m.pid === my && m.state === "asked") return `<div class="note warn"><b>Kannst du das Material mitnehmen?</b> ${kNames} ${m.keepers.length > 1 ? "sind" : "ist"} nicht dabei.
+  if (m.state === "keeper") return `<p class="muted">Trikots: ${m.pid === my ? "du" : nm(m.pid)}</p>`;
+  if (m.pid === my && m.state === "asked") return `<div class="note warn"><b>Kannst du die Trikots mitnehmen?</b> ${kNames} ${m.keepers.length > 1 ? "sind" : "ist"} nicht dabei.
     <div class="row"><button class="primary" data-matans="yes">Ja, nehme ich mit</button><button data-matans="no">Nein, geht nicht</button></div></div>`;
-  if (m.state === "yes") return `<p class="muted">Material: ${m.pid === my ? "du nimmst es mit" : nm(m.pid)} (für ${kNames})${m.pid === my ? ` <button data-matans="no">Geht doch nicht</button>` : ""}</p>`;
-  if (!isTrainer()) return `<p class="muted">Material: ${m.state === "asked" ? nm(m.pid) + " ist angefragt" : "noch offen"}</p>`;
+  if (m.state === "yes") return `<p class="muted">Trikots: ${m.pid === my ? "du nimmst sie mit" : nm(m.pid)} (für ${kNames})${m.pid === my ? ` <button data-matans="no">Geht doch nicht</button>` : ""}</p>`;
+  if (!isTrainer()) return `<p class="muted">Trikots: ${m.state === "asked" ? nm(m.pid) + " ist angefragt" : "noch offen"}</p>`;
   const opts = attendees(t).filter(r => r.access && !(m.state === "no" && r.id === m.pid)).map(r => `<option value="${esc(r.id)}">${esc(r.name)}</option>`).join("");
   const head = m.state === "asked" ? `${nm(m.pid)} ist angefragt – die Antwort steht noch aus.`
-    : m.state === "no" ? `${nm(m.pid)} kann das Material nicht mitnehmen. Wer nimmt es mit?`
-    : m.dropped ? `${nm(m.dropped)} hatte zugesagt, ist aber nicht mehr dabei. Wer nimmt es mit?`
-    : `${kNames} ${m.keepers.length > 1 ? "sind" : "ist"} nicht dabei. Wer nimmt das Material mit?`;
-  return `<div class="note warn"><b>Material:</b> ${head}
-    <div class="row"><select id="matPick" aria-label="Spieler für das Material">${opts}</select><button class="primary" data-matask="${esc(t.id)}">${m.state === "asked" ? "Jemand anderen fragen" : "Anfragen"}</button></div></div>`;
+    : m.state === "no" ? `${nm(m.pid)} kann die Trikots nicht mitnehmen. Wer nimmt sie mit?`
+    : m.dropped ? `${nm(m.dropped)} hatte zugesagt, ist aber nicht mehr dabei. Wer nimmt sie mit?`
+    : `${kNames} ${m.keepers.length > 1 ? "sind" : "ist"} nicht dabei. Wer nimmt die Trikots mit?`;
+  return `<div class="note warn"><b>Trikots:</b> ${head}
+    <div class="row"><select id="matPick" aria-label="Spieler für die Trikots">${opts}</select><button class="primary" data-matask="${esc(t.id)}">${m.state === "asked" ? "Jemand anderen fragen" : "Anfragen"}</button></div></div>`;
 }
 
 /* ---------- teams ---------- */
@@ -1082,9 +1082,9 @@ function renderTodo(){
       items.push(`<div class="titem"><span><b>${esc(S.roster[a.pid]?.name || "Spieler")}</b> hat sich nach der Frist abgemeldet (${ABS_REASON[a.reason] || "abwesend"}) – ${when(t)}</span>
         <span class="row"><button class="primary" data-abconfirm="${esc(a.id)}" data-tid="${esc(t.id)}">Bestätigen</button>${show(t)}</span></div>`);
     for (const t of materialAlerts())
-      items.push(`<div class="titem"><span><b>Material</b>: niemand nimmt es mit – ${when(t)}</span><span class="row">${show(t)}</span></div>`);
+      items.push(`<div class="titem"><span><b>Trikots</b>: niemand nimmt sie mit – ${when(t)}</span><span class="row">${show(t)}</span></div>`);
   } else for (const t of materialAsks())
-    items.push(`<div class="titem"><span><b>Material</b>: Kannst du es mitnehmen? – ${when(t)}</span><span class="row">${show(t)}</span></div>`);
+    items.push(`<div class="titem"><span><b>Trikots</b>: Kannst du sie mitnehmen? – ${when(t)}</span><span class="row">${show(t)}</span></div>`);
   $("#todoBox").hidden = !items.length;
   $("#todoBox").innerHTML = items.length ? `<h3>Zu erledigen (${items.length})</h3>${items.join("")}` : "";
 }
@@ -1353,7 +1353,7 @@ function renderPlayers(){
   const {key, dir} = S.sort;
   const rows = all.slice().sort((a,b)=> (a.active===false)-(b.active===false) || (key==="name" ? byName(a,b) : key==="number" ? (nrOf(a) ?? 999)-(nrOf(b) ?? 999) : key==="pos" ? "GDO".indexOf(a.pos)-"GDO".indexOf(b.pos) : (+a.rating||0)-(+b.rating||0)) * dir);
   const th = (k,l,c="") => `<th class="${c}" data-sort="${k}" aria-sort="${key===k?(dir>0?"ascending":"descending"):"none"}">${l}${key===k?(dir>0?" ▲":" ▼"):""}</th>`;
-  $("#playerTable").innerHTML = `<table><thead><tr>${th("name","Name")}${th("number","Nr.","num")}${th("pos","Position")}${th("rating","Stärke","num")}<th>Zugang (E-Mail)</th><th>Kassier</th><th class="dev-only">Trainer</th><th>Material</th><th>Aktiv</th><th><span hidden>Löschen</span></th></tr></thead><tbody>${
+  $("#playerTable").innerHTML = `<table><thead><tr>${th("name","Name")}${th("number","Nr.","num")}${th("pos","Position")}${th("rating","Stärke","num")}<th>Zugang (E-Mail)</th><th>Kassier</th><th class="dev-only">Trainer</th><th>Trikots</th><th>Aktiv</th><th><span hidden>Löschen</span></th></tr></thead><tbody>${
     rows.map(p=>`<tr class="${p.active===false?"inactive":""}" data-pid="${esc(p.id)}">
       <td><input class="pname" data-f="name" value="${esc(p.name)}" aria-label="Name"></td>
       <td class="num"><input class="nr" data-f="number" type="number" min="0" max="99" step="1" value="${nrOf(p) ?? ""}" placeholder="–" aria-label="Nummer ${esc(p.name)}"></td>
@@ -1365,7 +1365,7 @@ function renderPlayers(){
       <td class="dev-only">${(() => { const em = (p.email||"").toLowerCase(), m = S.members[em], role = m ? (m.role || "trainer") : "";
         const ok = em && em !== S.me?.email && role !== "developer";
         return `<input type="checkbox" data-trainer="${esc(p.id)}" ${role === "trainer" || role === "developer" ? "checked" : ""} ${ok ? "" : "disabled"} aria-label="${esc(p.name)} ist Trainer" title="${ok ? "Trainer-Rechte (nur Entwickler)" : role === "developer" ? "Entwickler – nur in der Datenbank änderbar" : "Nur für Spieler mit Zugang"}">`; })()}</td>
-      <td><input type="checkbox" data-f="material" ${p.material?"checked":""} aria-label="${esc(p.name)} ist für das Material verantwortlich" title="Verantwortlich für das Material"></td>
+      <td><input type="checkbox" data-f="material" ${p.material?"checked":""} aria-label="${esc(p.name)} ist für die Trikots verantwortlich" title="Verantwortlich für die Trikots"></td>
       <td><input type="checkbox" data-f="active" ${p.active!==false?"checked":""} aria-label="${esc(p.name)} aktiv"></td>
       <td><button class="danger" data-del="${esc(p.id)}" aria-label="${esc(p.name)} löschen">Löschen</button></td></tr>`).join("")
   }</tbody></table>`;
@@ -1919,7 +1919,7 @@ document.addEventListener("click", e => {
       const pid = $("#matPick")?.value; if (!pid) { status("Niemand mit Zugang ist dabei, den du fragen könntest.", true); return; }
       api.askMaterial(tr, pid); status(`${S.roster[pid]?.name} wird per Push-Nachricht gefragt.`);
     }
-    else if (t.dataset.matans && tr) { const yes = t.dataset.matans === "yes"; api.answerMaterial(tr, yes); status(yes ? "Danke! Du nimmst das Material mit." : "Abgesagt – der Trainer fragt jemand anderen."); }
+    else if (t.dataset.matans && tr) { const yes = t.dataset.matans === "yes"; api.answerMaterial(tr, yes); status(yes ? "Danke! Du nimmst die Trikots mit." : "Abgesagt – der Trainer fragt jemand anderen."); }
     else if (t.dataset.vote) {
       const n = S.news.find(x => x.id === t.dataset.vote), i = +t.dataset.opt; if (!n || !S.me?.playerId) return;
       api.vote(n, (n.votes || {})[S.me.playerId] === i ? null : i);
