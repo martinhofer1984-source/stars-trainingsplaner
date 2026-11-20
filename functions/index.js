@@ -299,3 +299,45 @@ async function addTestCases(test, email, member) {
   added.push("Umfrage", "Team-Info");
   return added;
 }
+
+// ---------- test database: view as another user (developer only) ----------
+// The developer's access in the test database takes the role and player of the chosen member,
+// so the app and the security rules behave exactly as for that user. The check always uses the
+// live database, so the developer can switch back from any role.
+async function assertDev(req) {
+  const email = String(req.auth?.token?.email || "").toLowerCase();
+  if (!email || req.auth.token.email_verified !== true) throw new HttpsError("unauthenticated", "Bitte anmelden.");
+  const me = await getFirestore().collection("members").doc(email).get();
+  if (!me.exists || me.data().role !== "developer") throw new HttpsError("permission-denied", "Nur für Entwickler.");
+  return { email, live: me.data() };
+}
+exports.testUsers = onCall(async req => {
+  const { email } = await assertDev(req);
+  const test = getFirestore("test");
+  const [m, r] = await Promise.all([test.collection("members").get(), test.collection("roster").get()]);
+  const names = {}; r.forEach(d => { names[d.id] = d.data().name; });
+  const users = [];
+  m.forEach(d => {
+    const v = d.data();
+    if (d.id !== email && v.playerId && names[v.playerId]) users.push({ pid: v.playerId, name: names[v.playerId], role: v.role || "trainer" });
+  });
+  users.sort((a, b) => a.name.localeCompare(b.name, "de"));
+  const mine = (await test.collection("members").doc(email).get()).data();
+  return { users, me: mine ? { role: mine.role || "trainer", pid: mine.playerId || "" } : null };
+});
+exports.testViewAs = onCall(async req => {
+  const { email, live } = await assertDev(req);
+  const test = getFirestore("test"), pid = String(req.data?.pid || "");
+  let doc;
+  if (!pid) {
+    const own = live.playerId || ((await test.collection("roster").doc("test-ich").get()).exists ? "test-ich" : "");
+    doc = { name: live.name || "", role: "developer", ...(own ? { playerId: own } : {}) };
+  } else {
+    const other = (await test.collection("members").where("playerId", "==", pid).get()).docs.find(d => d.id !== email);
+    if (!other) throw new HttpsError("not-found", "Diesen Spieler gibt es in der Testdatenbank nicht.");
+    doc = { name: live.name || "", role: other.data().role || "trainer", playerId: pid };
+  }
+  await test.collection("members").doc(email).set(doc);
+  logger.info(`test view of ${email}: ${doc.role} ${doc.playerId || ""}`);
+  return doc;
+});
