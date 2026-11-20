@@ -1268,13 +1268,14 @@ function renderTeams(){
   const same = sameTeams(pub, tm);
   const state = !pub ? `<p class="note">Entwurf – noch nicht freigegeben. Mitspieler sehen die Teams erst nach der Freigabe.</p>`
     : same ? `<p class="note">Freigegeben${pub.at ? " am "+dWhen(pub.at) : ""}. Mitspieler sehen diese Teams.</p>`
-    : `<p class="note warn">Geändert. Mitspieler sehen noch die zuletzt freigegebene Einteilung.</p>`;
+    : `<p class="note warn"><b>Nicht freigegebene Änderungen.</b> Mitspieler sehen weiter die freigegebene Einteilung, bis du „Änderungen freigeben“ tippst. „Zurück zur Freigabe“ verwirft die Änderungen.</p>`;
   box.innerHTML = `${state}
     ${stale ? `<p class="note warn">Seit der Einteilung hat sich die Anwesenheit geändert. Neu mischen oder Spieler verschieben.</p>` : ""}
     <div class="teams">${teamHTML("a","Team A",tm.A,true)}${teamHTML("b","Team B",tm.B,true)}</div>
     <p class="balance">Unterschied im Schnitt: <b>${fmt(Math.abs(mean(A)-mean(B)))}</b> · erwartete Siegchance Team A: <b>${Math.round(100/(1+Math.pow(10,(mean(B)-mean(A))/SCALE)))} %</b></p>
     <div class="row">
       ${same ? "" : `<button id="btnPublish" class="primary">${pub ? "Änderungen freigeben" : "Teams freigeben"}</button>`}
+      ${pub && !same ? `<button id="btnRevert">Zurück zur Freigabe</button>` : ""}
       <button id="btnGen2">Neu mischen</button>
       <button id="btnCopy">Als Text kopieren</button>
       ${pub ? `<button id="btnUnpublish" class="danger">Freigabe zurückziehen</button>` : ""}
@@ -1375,7 +1376,7 @@ function renderLines(){
   const same = sameLines(pub, ln);
   const state = !pub ? `<p class="note">Entwurf – noch nicht freigegeben. Mitspieler sehen die Linien erst nach der Freigabe.</p>`
     : same ? `<p class="note">Freigegeben${pub.at ? " am "+dWhen(pub.at) : ""}. Mitspieler sehen diese Linien.</p>`
-    : `<p class="note warn">Geändert. Mitspieler sehen noch die zuletzt freigegebenen Linien.</p>`;
+    : `<p class="note warn"><b>Nicht freigegebene Änderungen.</b> Mitspieler sehen weiter die freigegebenen Linien, bis du „Änderungen freigeben“ tippst. „Zurück zur Freigabe“ verwirft die Änderungen.</p>`;
   box.innerHTML = `${state}
     ${gone.length ? `<p class="note warn">Inzwischen abgesagt: ${gone.map(id => esc(person(id).name)).join(", ")}. Sie fallen beim nächsten Umsetzen oder Freigeben heraus.</p>` : ""}
     ${open.length ? `<p class="note warn">Noch nicht eingeteilt: ${open.length} Spieler. Sind die Linien voll, oben eine weitere Linie wählen.</p>` : ""}
@@ -1383,6 +1384,7 @@ function renderLines(){
     ${linesBody(ln, ins, true)}
     <div class="row">
       ${same ? "" : `<button id="btnLinesPublish" class="primary" ${overfull(ln).length ? "disabled" : ""}>${pub ? "Änderungen freigeben" : "Linien freigeben"}</button>`}
+      ${pub && !same ? `<button id="btnLinesRevert">Zurück zur Freigabe</button>` : ""}
       <button id="btnLinesCopy">Als Text kopieren</button>
       ${pub ? `<button id="btnLinesUnpublish" class="danger">Freigabe zurückziehen</button>` : ""}
     </div>`;
@@ -2031,6 +2033,8 @@ document.addEventListener("click", e => {
     else if (t.id==="btnLinesPublish" && tr && draftLines(tr)) { const ln = cleanLines(tr, draftLines(tr));
       if (overfull(ln).length) { status(`Erst freigeben, wenn keine Linie überbelegt ist: ${overfull(ln).map(slotName).join(", ")}.`, true); return; } api.setLines(tr.id, ln); api.publishLines(tr, ln); status("Linien freigegeben. Alle Mitspieler sehen sie jetzt."); }
     else if (t.id==="btnLinesUnpublish" && tr) confirmBtn(t, () => { api.unpublishLines(tr); status("Freigabe zurückgezogen. Mitspieler sehen keine Linien mehr."); });
+    else if (t.id==="btnRevert" && tr && published(tr)) confirmBtn(t, () => { const p = published(tr); api.setDraft(tr.id, {A: p.A, B: p.B}); status("Änderungen verworfen – wieder die freigegebenen Teams."); });
+    else if (t.id==="btnLinesRevert" && tr && publishedLines(tr)) confirmBtn(t, () => { const p = publishedLines(tr); api.setLines(tr.id, {d: p.d, o: p.o, slot: {...p.slot}}); status("Änderungen verworfen – wieder die freigegebenen Linien."); });
     else if (t.id==="btnCopy" && tr) { const tm = isTrainer() ? draftOf(tr) : published(tr); if (tm) copy(teamsText(tr, tm), t); }
     else if (t.id==="btnPublish" && tr && draftOf(tr)) { api.publish(tr, draftOf(tr)); status("Teams freigegeben. Alle Mitspieler sehen sie jetzt."); }
     else if (t.id==="btnUnpublish" && tr) confirmBtn(t, () => { api.unpublish(tr); status("Freigabe zurückgezogen. Mitspieler sehen keine Teams mehr."); });
