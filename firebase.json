@@ -23,7 +23,8 @@
       "docs-src/**"
     ],
     "rewrites": [
-      { "source": "/kalender", "function": { "functionId": "calendar", "region": "europe-west1" } }
+      { "source": "/kalender", "function": { "functionId": "calendar", "region": "europe-west1" } },
+      { "source": "/kalender/**", "function": { "functionId": "calendar", "region": "europe-west1" } }
     ],
     "headers": [
       {

@@ -1588,7 +1588,7 @@ async function openCalSub(renew){
   const box = $("#calSubBox"); box.hidden = false; box.textContent = "Abo-Link wird erstellt …";
   try {
     const token = await calFeedToken(renew);
-    const https = `${APP_URL}kalender?k=${token}${TEST_DB ? "&db=test" : ""}`, webcal = https.replace(/^https:/, "webcal:");
+    const https = `${APP_URL}kalender/${TEST_DB ? "test/" : ""}${token}.ics`, webcal = https.replace(/^https:/, "webcal:");
     box.innerHTML = `<span><b>Kalender abonnieren:</b> Neue, geänderte und ausgefallene Termine kommen von selbst in deinen Kalender, mit deinem Stand (abgesagt, Warteliste). Je nach Kalender dauert eine Änderung bis zu einigen Stunden.</span>
       <div class="row"><a class="btn primary" href="${esc(webcal)}">iPhone, Mac, Outlook</a>
         <a class="btn" href="https://calendar.google.com/calendar/render?cid=${encodeURIComponent(webcal)}" target="_blank" rel="noopener">Google Kalender</a>

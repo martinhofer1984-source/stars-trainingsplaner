@@ -360,8 +360,13 @@ function fold(line) {
   return parts.join("\r\n ");
 }
 exports.calendar = onRequest({ cors: false }, async (req, res) => {
-  const k = String(req.query.k || ""), testDb = req.query.db === "test";
-  if (!/^[a-f0-9]{32,64}$/.test(k)) { res.status(404).send("Kalender nicht gefunden"); return; }
+  // Link: /kalender/<token>.ics or /kalender/test/<token>.ics (older links: /kalender?k=<token>&db=test)
+  const p = /\/kalender\/(?:(test)\/)?([a-f0-9]{32,64})(?:\.ics)?\/?$/.exec(req.path || "");
+  const k = p ? p[2] : String(req.query.k || ""), testDb = p ? p[1] === "test" : req.query.db === "test";
+  if (!/^[a-f0-9]{32,64}$/.test(k)) {
+    logger.warn("calendar: malformed link", { path: String(req.path || "").replace(/[a-f0-9]{8,}/g, "…"), query: Object.keys(req.query || {}), agent: String(req.get("user-agent") || "").slice(0, 80) });
+    res.status(404).send("Kalender nicht gefunden"); return;
+  }
   const db = testDb ? getFirestore("test") : getFirestore();
   const feed = await db.collection("calfeeds").doc(k).get();
   const member = feed.exists ? await db.collection("members").doc(String(feed.data().email || "")).get() : null;
