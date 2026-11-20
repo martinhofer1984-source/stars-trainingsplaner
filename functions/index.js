@@ -349,13 +349,27 @@ exports.testViewAs = onCall(async req => {
 const { onRequest } = require("firebase-functions/v2/https");
 const icsEsc = s => String(s).replace(/\\/g, "\\\\").replace(/\n/g, "\\n").replace(/([,;])/g, "\\$1");
 const utcStamp = ms => new Date(ms).toISOString().replace(/[-:]/g, "").replace(/\.\d{3}/, "");
+// Calendar lines longer than 75 bytes are folded (continuation lines start with a space)
+function fold(line) {
+  const parts = []; let cur = "";
+  for (const ch of line) {
+    if (Buffer.byteLength(cur + ch) > (parts.length ? 74 : 75)) { parts.push(cur); cur = ""; }
+    cur += ch;
+  }
+  parts.push(cur);
+  return parts.join("\r\n ");
+}
 exports.calendar = onRequest({ cors: false }, async (req, res) => {
   const k = String(req.query.k || ""), testDb = req.query.db === "test";
   if (!/^[a-f0-9]{32,64}$/.test(k)) { res.status(404).send("Kalender nicht gefunden"); return; }
   const db = testDb ? getFirestore("test") : getFirestore();
   const feed = await db.collection("calfeeds").doc(k).get();
   const member = feed.exists ? await db.collection("members").doc(String(feed.data().email || "")).get() : null;
-  if (!member || !member.exists) { res.status(404).send("Kalender nicht gefunden"); return; }
+  const agent = String(req.get("user-agent") || "").slice(0, 80);
+  if (!member || !member.exists) {
+    logger.warn("calendar: unknown link", { db: testDb ? "test" : "live", feed: feed.exists, agent });
+    res.status(404).send("Kalender nicht gefunden"); return;
+  }
   const pid = member.data().playerId || "";
   const now = Date.now();
   const [snap, r, a] = await Promise.all([
@@ -377,8 +391,9 @@ exports.calendar = onRequest({ cors: false }, async (req, res) => {
   });
   const ics = ["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//Stars//Trainingsplaner//DE", "CALSCALE:GREGORIAN", "METHOD:PUBLISH",
     `X-WR-CALNAME:Stars${testDb ? " (Test)" : ""}`, "REFRESH-INTERVAL;VALUE=DURATION:PT1H", "X-PUBLISHED-TTL:PT1H",
-    ...events.flat(), "END:VCALENDAR", ""].join("\r\n");
+    ...events.flat(), "END:VCALENDAR"].map(fold).join("\r\n") + "\r\n";
   res.set("Content-Type", "text/calendar; charset=utf-8");
   res.set("Cache-Control", "private, max-age=300");
+  logger.info("calendar: feed delivered", { db: testDb ? "test" : "live", events: events.length, agent });
   res.send(ics);
 });
