@@ -199,6 +199,11 @@ details.new summary{cursor:pointer;font-weight:600;padding-block:4px}
 .poll button small{color:var(--muted);font-weight:400}
 .poll button[aria-pressed="true"]{border-color:var(--gold);box-shadow:inset 4px 0 0 var(--gold)}
 .note .row{margin-top:8px}
+.todo{display:grid;gap:8px;margin-bottom:12px}
+.todo h3{margin:0;font-size:15px;color:var(--gold)}
+.todo .titem{display:flex;flex-wrap:wrap;gap:6px 10px;align-items:center;justify-content:space-between}
+.todo .titem .row{margin:0}
+.nitem h3 .pill{margin-right:auto;margin-left:8px}
 td input.email{width:220px}
 </style>
 
@@ -231,6 +236,7 @@ td input.email{width:220px}
 
   <section data-section="training" class="panel">
     <h2>Termine <small id="tCount"></small></h2>
+    <div id="todoBox" class="note todo" hidden></div>
     <div id="tList" class="tlist"></div>
     <details class="new" id="newAbsence">
       <summary>Krank oder im Urlaub? Abwesenheit melden</summary>
@@ -691,7 +697,7 @@ function syncRoster(){
   const b = batcher();
   for (const p of Object.values(S.players)) {
     const want = rosterOf(p), have = S.roster[p.id];
-    if (!have || have.name!==want.name || have.pos!==want.pos || have.active!==want.active || have.access!==want.access || (have.number ?? null)!==(want.number ?? null)) b.set(rRef(p.id), want);
+    if (!have || have.name!==want.name || have.pos!==want.pos || have.active!==want.active || have.access!==want.access || (have.number ?? null)!==(want.number ?? null) || !!have.material!==!!want.material) b.set(rRef(p.id), want);
   }
   for (const id of Object.keys(S.roster)) if (!S.players[id]) b.delete(rRef(id));
   if (!b.size) return;
@@ -823,6 +829,8 @@ const api = {
   delAbsence(id){ fire(fb.F.deleteDoc(fb.F.doc(fb.db, "absences", id))); },
   confirmAbsence(a, tid){ fire(fb.F.updateDoc(fb.F.doc(fb.db, "absences", a.id), new fb.F.FieldPath("confirmed", tid), true)); },
   setTariffs(season, tf){ fire(fb.F.setDoc(fb.F.doc(fb.db, "kasse", "settings"), {seasons: {[season]: tf}}, {merge: true})); },
+  // Developer only: trainer rights for a player with access (the developer role itself is set in the database)
+  setTrainer(pid, email, on){ fire(fb.F.setDoc(mRef(email), {name: S.players[pid]?.name || "", role: on ? "trainer" : "player", playerId: pid})); },
   setCashier(pid, email, on){ fire(fb.F.setDoc(mRef(email), {name: S.players[pid]?.name || "", role: on ? "cashier" : "player", playerId: pid})); },
   // Trainer: dabei, abgesagt or waiting list ("wait"); players on the list keep the answer "in"
   setAnswer(t, pid, val){
@@ -920,9 +928,9 @@ const isGame = t => t?.kind === "game";
 const kindOf = t => isGame(t) ? "Spiel" : "Training";
 
 /* ---------- capacity and waiting list ---------- */
-// Same limits as functions/core.js: games 3 full lines (15 field players) and 2 goalies,
+// Same limits as functions/core.js: games 3 full lines (15 field players) and 1 goalie,
 // trainings 20 field players and 2 goalies; defenders and forwards count together
-const CAP = {game: {field: 15, goal: 2}, training: {field: 20, goal: 2}};
+const CAP = {game: {field: 15, goal: 1}, training: {field: 20, goal: 2}};
 const capOf = t => isGame(t) ? CAP.game : CAP.training;
 const capTotal = t => capOf(t).field + capOf(t).goal;
 const slotOf = r => r?.pos === "G" ? "goal" : "field";
@@ -1025,7 +1033,7 @@ function render(){
   document.querySelectorAll("nav a").forEach(a => { if (a.dataset.view===v) a.setAttribute("aria-current","page"); else a.removeAttribute("aria-current"); });
   document.querySelectorAll("[data-section]").forEach(s => s.hidden = s.dataset.section !== v);
   if (v==="denied") $("#deniedEmail").textContent = S.user?.email || "";
-  if (v==="training") { renderTrainings(); renderAbsences(); renderDetail(); if (isTrainer()) renderPresent(); renderTeams(); renderLines(); }
+  if (v==="training") { renderTodo(); renderTrainings(); renderAbsences(); renderDetail(); if (isTrainer()) renderPresent(); renderTeams(); renderLines(); }
   if (v==="spieler") { if ($("#playerTable").contains(document.activeElement)) pendingRender = true; else renderPlayers(); }
   if (v==="statistik") renderStats();
   if (v==="ergebnisse") renderResults();
@@ -1053,6 +1061,23 @@ function renderTrainings(){
       <span class="tinfo"><b>${tRange(t)} Uhr${t.place ? " · "+esc(t.place) : ""}</b><span>${kindOf(t)}${t.note ? " · "+esc(t.note) : ""}</span></span>
       ${pill}</button>`;
   }).join("");
+}
+
+// "Zu erledigen": what the gold number at "Termine" counts, with a way to each appointment
+function renderTodo(){
+  const when = t => `${kindOf(t)} ${dDay(t.start)} ${dTime(t.start)} Uhr`;
+  const show = t => `<button data-sel="${esc(t.id)}">Ansehen</button>`;
+  const items = [];
+  if (isTrainer()) {
+    for (const [t, a] of pendingAbsences())
+      items.push(`<div class="titem"><span><b>${esc(S.roster[a.pid]?.name || "Spieler")}</b> hat sich nach der Frist abgemeldet (${ABS_REASON[a.reason] || "abwesend"}) – ${when(t)}</span>
+        <span class="row"><button class="primary" data-abconfirm="${esc(a.id)}" data-tid="${esc(t.id)}">Bestätigen</button>${show(t)}</span></div>`);
+    for (const t of materialAlerts())
+      items.push(`<div class="titem"><span><b>Material</b>: niemand nimmt es mit – ${when(t)}</span><span class="row">${show(t)}</span></div>`);
+  } else for (const t of materialAsks())
+    items.push(`<div class="titem"><span><b>Material</b>: Kannst du es mitnehmen? – ${when(t)}</span><span class="row">${show(t)}</span></div>`);
+  $("#todoBox").hidden = !items.length;
+  $("#todoBox").innerHTML = items.length ? `<h3>Zu erledigen (${items.length})</h3>${items.join("")}` : "";
 }
 
 function renderAbsences(){
@@ -1319,7 +1344,7 @@ function renderPlayers(){
   const {key, dir} = S.sort;
   const rows = all.slice().sort((a,b)=> (a.active===false)-(b.active===false) || (key==="name" ? byName(a,b) : key==="number" ? (nrOf(a) ?? 999)-(nrOf(b) ?? 999) : key==="pos" ? "GDO".indexOf(a.pos)-"GDO".indexOf(b.pos) : (+a.rating||0)-(+b.rating||0)) * dir);
   const th = (k,l,c="") => `<th class="${c}" data-sort="${k}" aria-sort="${key===k?(dir>0?"ascending":"descending"):"none"}">${l}${key===k?(dir>0?" ▲":" ▼"):""}</th>`;
-  $("#playerTable").innerHTML = `<table><thead><tr>${th("name","Name")}${th("number","Nr.","num")}${th("pos","Position")}${th("rating","Stärke","num")}<th>Zugang (E-Mail)</th><th>Kassier</th><th>Material</th><th>Aktiv</th><th><span hidden>Löschen</span></th></tr></thead><tbody>${
+  $("#playerTable").innerHTML = `<table><thead><tr>${th("name","Name")}${th("number","Nr.","num")}${th("pos","Position")}${th("rating","Stärke","num")}<th>Zugang (E-Mail)</th><th>Kassier</th><th class="dev-only">Trainer</th><th>Material</th><th>Aktiv</th><th><span hidden>Löschen</span></th></tr></thead><tbody>${
     rows.map(p=>`<tr class="${p.active===false?"inactive":""}" data-pid="${esc(p.id)}">
       <td><input class="pname" data-f="name" value="${esc(p.name)}" aria-label="Name"></td>
       <td class="num"><input class="nr" data-f="number" type="number" min="0" max="99" step="1" value="${nrOf(p) ?? ""}" placeholder="–" aria-label="Nummer ${esc(p.name)}"></td>
@@ -1328,6 +1353,9 @@ function renderPlayers(){
       <td><input class="email" data-f="email" type="email" value="${esc(p.email||"")}" placeholder="Gast – kein Zugang" aria-label="Zugang ${esc(p.name)}"></td>
       <td>${(() => { const em = (p.email||"").toLowerCase(), ok = em && em !== S.me?.email && !isOtherTrainer(em);
         return `<input type="checkbox" data-cashier="${esc(p.id)}" ${S.members[em]?.role === "cashier" ? "checked" : ""} ${ok ? "" : "disabled"} aria-label="${esc(p.name)} ist Kassier" title="${ok ? "Kassier: verwaltet die Kasse" : "Nur für Spieler mit Zugang"}">`; })()}</td>
+      <td class="dev-only">${(() => { const em = (p.email||"").toLowerCase(), m = S.members[em], role = m ? (m.role || "trainer") : "";
+        const ok = em && em !== S.me?.email && role !== "developer";
+        return `<input type="checkbox" data-trainer="${esc(p.id)}" ${role === "trainer" || role === "developer" ? "checked" : ""} ${ok ? "" : "disabled"} aria-label="${esc(p.name)} ist Trainer" title="${ok ? "Trainer-Rechte (nur Entwickler)" : role === "developer" ? "Entwickler – nur in der Datenbank änderbar" : "Nur für Spieler mit Zugang"}">`; })()}</td>
       <td><input type="checkbox" data-f="material" ${p.material?"checked":""} aria-label="${esc(p.name)} ist für das Material verantwortlich" title="Verantwortlich für das Material"></td>
       <td><input type="checkbox" data-f="active" ${p.active!==false?"checked":""} aria-label="${esc(p.name)} aktiv"></td>
       <td><button class="danger" data-del="${esc(p.id)}" aria-label="${esc(p.name)} löschen">Löschen</button></td></tr>`).join("")
@@ -1745,7 +1773,7 @@ function renderNews(){
   renderPushHint();
   $("#newsList").innerHTML = !news.length ? `<div class="empty">Keine aktuellen Nachrichten.</div>`
     : news.map(n => `<div class="nitem${n.at > seen ? " unread" : ""}${n.kind === "event" ? " auto" : ""}">
-        <h3>${esc(n.title || "")}<small>${n.at ? dDay(n.at) + " " + dTime(n.at) : ""}</small></h3>
+        <h3>${esc(n.title || "")}${n.at > seen ? `<span class="pill wait">neu</span>` : ""}<small>${n.at ? dDay(n.at) + " " + dTime(n.at) : ""}</small></h3>
         ${n.text ? `<p>${esc(n.text)}</p>` : ""}
         ${n.kind === "poll" ? pollHTML(n) : ""}
         <span class="muted">${n.kind === "event" ? "automatisch" : (n.kind === "poll" ? "Umfrage von " : "von ") + esc(n.by || "Trainer")}</span>
@@ -2044,6 +2072,11 @@ document.addEventListener("change", e => {
   if (el.dataset.plan) { api.setPlan(el.dataset.plan, el.value); return; }
   if (el.dataset.paid) { api.setPaid(el.dataset.paid, [el.dataset.key], el.checked); return; }
   if (el.dataset.gcost) { const v = Number(el.value || 0); if (!Number.isFinite(v) || v < 0 || v > 1000) { status("Bitte einen Betrag von 0 bis 1000 eingeben.", true); return; } api.setGameCost(el.dataset.gcost, Math.round(v * 100) / 100); return; }
+  if (el.dataset.trainer) {
+    const p = S.players[el.dataset.trainer], em = (p?.email || "").toLowerCase();
+    if (!em || !isDev()) { el.checked = !el.checked; return; }
+    api.setTrainer(p.id, em, el.checked); status(el.checked ? `${p.name} ist jetzt Trainer.` : `${p.name} ist kein Trainer mehr.`); return;
+  }
   if (el.dataset.cashier) {
     const p = S.players[el.dataset.cashier], em = (p?.email || "").toLowerCase();
     if (!em) { el.checked = false; return; }

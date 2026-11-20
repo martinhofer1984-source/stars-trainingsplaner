@@ -30,6 +30,8 @@ service cloud.firestore {
     function isTrainer() { return signedIn() && me().get('role', 'trainer') in ['trainer', 'developer']; }
     function myPlayerId() { return me().get('playerId', ''); }
     // Trainers and the cashier manage the cash box
+    // The developer role is only set in the database (console); developers hand out trainer rights
+    function isDev() { return signedIn() && me().get('role', 'trainer') == 'developer'; }
     function isKasse() { return signedIn() && me().get('role', 'trainer') in ['trainer', 'developer', 'cashier']; }
 
     // Optional jersey number 0-99
@@ -44,7 +46,7 @@ service cloud.firestore {
       allow create: if isTrainer()
         && email == email.lower()
         && request.resource.data.keys().hasOnly(['name', 'role', 'playerId'])
-        && request.resource.data.role in ['player', 'cashier']
+        && (request.resource.data.role in ['player', 'cashier'] || (request.resource.data.role == 'trainer' && isDev()))
         && request.resource.data.name is string
         && request.resource.data.playerId is string;
       allow update: if isTrainer()
@@ -52,11 +54,16 @@ service cloud.firestore {
         && (
           // a player's access
           (resource.data.get('role', 'trainer') in ['player', 'cashier'] && request.resource.data.role in ['player', 'cashier'])
+          // the developer makes players trainers and back (never another developer, never himself)
+          || (isDev() && email != myEmail()
+              && resource.data.get('role', 'trainer') in ['player', 'cashier', 'trainer']
+              && request.resource.data.role in ['player', 'cashier', 'trainer'])
           // a trainer links or unlinks the own player entry, nothing else
           || (email == myEmail()
               && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['playerId']))
         );
-      allow delete: if isTrainer() && resource.data.get('role', 'trainer') in ['player', 'cashier'];
+      allow delete: if (isTrainer() && resource.data.get('role', 'trainer') in ['player', 'cashier'])
+        || (isDev() && email != myEmail() && resource.data.get('role', 'trainer') == 'trainer');
     }
 
     match /players/{playerId} {

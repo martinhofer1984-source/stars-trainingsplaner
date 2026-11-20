@@ -9,9 +9,9 @@
 const DEADLINE_MS = 24 * 3600e3;
 const OVER_FALLBACK_MS = 2 * 3600e3;
 
-// Most players per appointment: games 3 full lines (3 x 2 defenders + 3 forwards) and 2 goalies,
+// Most players per appointment: games 3 full lines (3 x 2 defenders + 3 forwards) and 1 goalie,
 // trainings 20 field players and 2 goalies. Defenders and forwards count together.
-const CAP = { game: { field: 15, goal: 2 }, training: { field: 20, goal: 2 } };
+const CAP = { game: { field: 15, goal: 1 }, training: { field: 20, goal: 2 } };
 const capOf = t => t.kind === "game" ? CAP.game : CAP.training;
 const slotOf = r => r && r.pos === "G" ? "goal" : "field";
 
