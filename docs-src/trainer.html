@@ -79,6 +79,20 @@
   </div>
 </div>
 
+<h3>Höchstzahl und Warteliste</h3>
+<div class="step">
+  <div class="phone" style="height:76mm"><img src="img/t-voll.jpg" alt="" style="height:100%;object-fit:cover;object-position:top"></div>
+  <div>
+    <p>Pro Termin gilt eine Höchstzahl: <b>Spiel</b> 15 Feldspieler (3 volle Linien) und 2 Torhüter, <b>Training</b> 20 Feldspieler und 2 Torhüter. Verteidiger und Stürmer zählen zusammen. Beim Termin steht „Dabei (18, max. 17)“.</p>
+    <ul>
+      <li>Sind es zu viele, erscheint der Hinweis <b>„Zu viele“</b> (rot markiert). Du entscheidest, wer auf die Warteliste kommt – <b>Gäste zuerst</b>.</li>
+      <li>Bei <b>Anwesend</b> einen Spieler antippen: Solange es zu viele sind, kommt er auf die <b>Warteliste</b> (gold gestrichelt). Nochmal antippen = abgesagt, nochmal = dabei.</li>
+      <li>Einen Gast antippen, wenn der Termin voll ist: Er kommt direkt auf die Warteliste.</li>
+      <li>Sagt jemand ab, <b>rückt der Erste der Warteliste automatisch nach</b> (Torhüter für Torhüter, Feldspieler für Feldspieler) und bekommt eine Push-Nachricht.</li>
+    </ul>
+  </div>
+</div>
+
 <h3>Abwesenheiten (krank, Urlaub)</h3>
 <p>Spieler melden selbst einen Zeitraum, in dem sie fehlen – sie sind dann bei allen Terminen darin automatisch abgesagt. Du kannst das auch für einen Spieler eintragen.</p>
 <div class="step">
@@ -97,8 +111,21 @@
   <div class="phone" style="height:74mm"><img src="img/t-abbestaetigen.jpg" alt="" style="height:100%;object-fit:cover;object-position:top"></div>
   <div>
     <h3>Kurzfristige Abmeldung bestätigen</h3>
-    <p>Meldet sich ein Spieler <b>nach der Absagefrist</b> ab, zählt er bei diesem Termin noch als dabei. Am Menü und bei <b>Termine</b> erscheint eine goldene Zahl. Beim Termin steht der Hinweis mit <span class="ui">Abmeldung bestätigen</span> (rot markiert).</p>
+    <p>Meldet sich ein Spieler <b>nach der Absagefrist</b> ab, zählt er bei diesem Termin noch als dabei. Alle Trainer bekommen sofort eine <b>Push-Nachricht</b>, und am Menü und bei <b>Termine</b> erscheint eine goldene Zahl. Beim Termin steht der Hinweis mit <span class="ui">Abmeldung bestätigen</span> (rot markiert).</p>
     <div class="ex"><b class="t">Beispiel:</b> Leon meldet sich am Trainingstag krank → <b>1</b> am Menü → Termine → Training antippen → „Leon hat sich nach der Frist abgemeldet (krank: Grippe)“ → <span class="ui">Abmeldung bestätigen</span> → Leon ist abgesagt.</div>
+  </div>
+</div>
+
+<h3>Material</h3>
+<div class="step">
+  <div class="phone" style="height:74mm"><img src="img/t-material.jpg" alt="" style="height:100%;object-fit:cover;object-position:top"></div>
+  <div>
+    <p>In der Spielerliste setzt du bei <b>Material</b> den Haken beim Verantwortlichen. Beim Termin steht dann „Material: Max“.</p>
+    <ol>
+      <li>Ist er nicht dabei, erscheint beim Termin <b>„Max ist nicht dabei. Wer nimmt das Material mit?“</b> und eine goldene Zahl bei Termine.</li>
+      <li>Einen Spieler wählen, der dabei ist → <span class="ui">Anfragen</span> (rot markiert). Er bekommt eine Push-Nachricht.</li>
+      <li>Sagt er zu, steht „Material: Ben (für Max)“. Sagt er ab, bekommst du eine Push-Nachricht und fragst den Nächsten.</li>
+    </ol>
   </div>
 </div>
 
@@ -139,6 +166,7 @@
       <tr><td>Stärke 1–10</td><td>für die Team- und Linien-Vorschläge, nur für Trainer sichtbar</td></tr>
       <tr><td>Zugang (E-Mail)</td><td>mit Adresse kann sich der Spieler anmelden und ist automatisch dabei; ohne Adresse ist er <b>Gast</b></td></tr>
       <tr><td>Kassier</td><td>Häkchen = dieser Spieler verwaltet die Kasse (nur mit E-Mail)</td></tr>
+      <tr><td>Material</td><td>Häkchen = dieser Spieler ist für das Material verantwortlich</td></tr>
       <tr><td>Aktiv</td><td>Haken weg = pausiert (verletzt, Pause): nicht mehr automatisch dabei, kann aber selbst zusagen</td></tr>
       <tr><td>Löschen</td><td>zweimal tippen; entfernt auch den Zugang</td></tr>
     </table>
@@ -180,6 +208,20 @@
     <p>Alle sehen die Nachricht in der App, und wer Push eingeschaltet hat, bekommt sie aufs Handy. Nach 7 Tagen verschwindet sie automatisch; mit <span class="ui">Löschen</span> sofort.</p>
   </div>
 </div>
+<div class="step">
+  <div class="phone" style="height:78mm"><img src="img/t-umfrage.jpg" alt="" style="height:100%;object-fit:cover;object-position:top"></div>
+  <div>
+    <h3>Umfrage</h3>
+    <ol>
+      <li>Team-Info → <span class="ui">Neue Nachricht an alle</span> → Titel eingeben.</li>
+      <li>Bei <b>Art</b> „Umfrage“ wählen (rot markiert), darunter die Frage.</li>
+      <li>Bei <b>Antworten</b> 2 bis 8 Möglichkeiten eintragen, <b>eine pro Zeile</b> → <span class="ui">Umfrage senden</span>.</li>
+    </ol>
+    <p>Alle bekommen eine Push-Nachricht und stimmen in der Team-Info ab. Bei jeder Antwort stehen die Namen. Die Umfrage verschwindet nach 7 Tagen.</p>
+    <div class="ex"><b class="t">Beispiel:</b> Titel „Weihnachtsfeier“ · Art Umfrage · Frage „Welcher Samstag passt euch?“ · Antworten „Samstag, 12.12.“ und „Samstag, 19.12.“ → nach ein paar Tagen steht da 3 zu 2.</div>
+  </div>
+</div>
+<p class="muted">Geburtstage: Spieler tragen ihren Geburtstag freiwillig unter Konto ein. Am Morgen des Geburtstags erscheint automatisch ein Glückwunsch in der Team-Info.</p>
 
 <h2>9 · Kasse und Strafen</h2>
 <div class="step">
@@ -211,6 +253,7 @@
 <table class="faq">
   <tr><td>Spieler sagt nach der Frist ab</td><td>Beim Termin unter „Anwesend“ antippen – Trainer dürfen immer ändern.</td></tr>
   <tr><td>Spieler ist länger verletzt oder im Urlaub</td><td>Unter den Terminen „Abwesenheit melden“, Spieler und Zeitraum wählen – nicht jeden Termin einzeln antippen.</td></tr>
+  <tr><td>Termin ist voll, aber der Spieler soll unbedingt mit</td><td>Erst einen anderen (z. B. einen Gast) auf die Warteliste oder abgesagt tippen, dann ihn auf dabei.</td></tr>
   <tr><td>Gast spielt mit</td><td>Bei Anwesend antippen. Hat er öfter dabei zu sein, in der Spielerliste anlegen; mit E-Mail wird er regulärer Spieler.</td></tr>
   <tr><td>Spieler kann sich nicht anmelden</td><td>In der Spielerliste prüfen, ob seine Adresse genau stimmt (die, mit der er sich anmeldet).</td></tr>
   <tr><td>Neuer Co-Trainer</td><td>Trainer-Rechte vergibt der Entwickler (Martin).</td></tr>
