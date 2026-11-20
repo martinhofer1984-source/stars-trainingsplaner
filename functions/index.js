@@ -359,20 +359,37 @@ function fold(line) {
   parts.push(cur);
   return parts.join("\r\n ");
 }
+// Diagnosis: the last 20 requests (time, result, number of appointments, calendar client, link
+// form; no codes, no names) in calstats/recent of the live database, shown at /kalender/status
+async function noteCalendar(entry) {
+  try {
+    const ref = getFirestore().collection("calstats").doc("recent");
+    await getFirestore().runTransaction(async tx => {
+      const list = ((await tx.get(ref)).data()?.list || []).slice(-19);
+      tx.set(ref, { list: [...list, { at: new Date().toISOString(), ...entry }] });
+    });
+  } catch (e) { logger.error("calendar stats failed", e); }
+}
 exports.calendar = onRequest({ cors: false }, async (req, res) => {
+  const path = String(req.path || ""), agent = String(req.get("user-agent") || "").slice(0, 80);
+  if (/\/kalender\/status\/?$/.test(path)) {
+    const s = await getFirestore().collection("calstats").doc("recent").get();
+    res.set("Cache-Control", "no-store").json(s.exists ? s.data().list : []); return;
+  }
   // Link: /kalender/<token>.ics or /kalender/test/<token>.ics (older links: /kalender?k=<token>&db=test)
-  const p = /\/kalender\/(?:(test)\/)?([a-f0-9]{32,64})(?:\.ics)?\/?$/.exec(req.path || "");
+  const p = /\/kalender\/(?:(test)\/)?([a-f0-9]{32,64})(?:\.ics)?\/?$/.exec(path);
   const k = p ? p[2] : String(req.query.k || ""), testDb = p ? p[1] === "test" : req.query.db === "test";
+  const base = { method: req.method, form: p ? "path" : "query", db: testDb ? "test" : "live", agent };
   if (!/^[a-f0-9]{32,64}$/.test(k)) {
-    logger.warn("calendar: malformed link", { path: String(req.path || "").replace(/[a-f0-9]{8,}/g, "…"), query: Object.keys(req.query || {}), agent: String(req.get("user-agent") || "").slice(0, 80) });
+    await noteCalendar({ ...base, result: "malformed", path: path.replace(/[a-f0-9]{8,}/g, "…"), query: Object.keys(req.query || {}).join(",") });
     res.status(404).send("Kalender nicht gefunden"); return;
   }
+  try {
   const db = testDb ? getFirestore("test") : getFirestore();
   const feed = await db.collection("calfeeds").doc(k).get();
   const member = feed.exists ? await db.collection("members").doc(String(feed.data().email || "")).get() : null;
-  const agent = String(req.get("user-agent") || "").slice(0, 80);
   if (!member || !member.exists) {
-    logger.warn("calendar: unknown link", { db: testDb ? "test" : "live", feed: feed.exists, agent });
+    await noteCalendar({ ...base, result: feed.exists ? "no member" : "unknown link" });
     res.status(404).send("Kalender nicht gefunden"); return;
   }
   const pid = member.data().playerId || "";
@@ -399,6 +416,11 @@ exports.calendar = onRequest({ cors: false }, async (req, res) => {
     ...events.flat(), "END:VCALENDAR"].map(fold).join("\r\n") + "\r\n";
   res.set("Content-Type", "text/calendar; charset=utf-8");
   res.set("Cache-Control", "private, max-age=300");
-  logger.info("calendar: feed delivered", { db: testDb ? "test" : "live", events: events.length, agent });
+  await noteCalendar({ ...base, result: "delivered", events: events.length, bytes: Buffer.byteLength(ics) });
   res.send(ics);
+  } catch (e) {
+    logger.error("calendar feed failed", e);
+    await noteCalendar({ ...base, result: "error", error: String(e?.message || e).slice(0, 120) });
+    res.status(500).send("Fehler");
+  }
 });
