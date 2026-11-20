@@ -1010,6 +1010,14 @@ function generate(t){
 }
 
 /* ---------- rendering ---------- */
+// Link to one appointment ("#termin-<id>", from the Team-Info and push messages): opens it in Termine
+function takeTerminHash(){
+  const m = /^#termin-(.+)$/.exec(location.hash); if (!m || !S.loaded?.trainings) return;
+  const id = decodeURIComponent(m[1]);
+  history.replaceState(null, "", location.pathname + location.search + "#training");
+  if (S.trainings.some(t => t.id === id)) { S.sel = id; setTimeout(() => $("#detailPanel").scrollIntoView({behavior: "smooth", block: "start"}), 60); }
+  else status("Dieser Termin ist schon vorbei oder wurde gelöscht.", true);
+}
 function view(){
   if (!S.authKnown) return "loading";
   if (!S.user) return "login";
@@ -1027,6 +1035,7 @@ function view(){
 }
 
 function render(){
+  takeTerminHash();
   const v = view();
   $(".menu").hidden = !["training","info","spieler","ergebnisse","kasse","statistik","downloads","konto"].includes(v);
   const cur = document.querySelector(`nav a[data-view="${v}"]`); if (cur) $("#menuLabel").textContent = cur.firstChild.textContent;
@@ -1777,7 +1786,8 @@ function renderNews(){
         ${n.text ? `<p>${esc(n.text)}</p>` : ""}
         ${n.kind === "poll" ? pollHTML(n) : ""}
         <span class="muted">${n.kind === "event" ? "automatisch" : (n.kind === "poll" ? "Umfrage von " : "von ") + esc(n.by || "Trainer")}</span>
-        ${isTrainer() ? `<div class="row"><button class="danger" data-newsdel="${esc(n.id)}">Löschen</button></div>` : ""}
+        ${(() => { const tid = newsTid(n), ok = tid && S.trainings.some(t => t.id === tid), del = isTrainer() ? `<button class="danger" data-newsdel="${esc(n.id)}">Löschen</button>` : "";
+          return ok || del ? `<div class="row">${ok ? `<a class="btn" href="#termin-${encodeURIComponent(tid)}">Termin ansehen</a>` : ""}${del}</div>` : ""; })()}
       </div>`).join("");
   // Opening the tab marks everything as read
   if (news.length) { try { localStorage.setItem(SEEN_KEY, String(Math.max(seen, news[0].at))); } catch {} }

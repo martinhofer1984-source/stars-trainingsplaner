@@ -71,7 +71,7 @@ const nameOf = async pid => (await db.collection("roster").doc(pid).get()).data(
 // Writes an automatic entry into the Team-Info feed; onNews pushes it. tid links it to the
 // appointment, so the entry disappears once the appointment is over; until removes it at that time.
 const post = (title, text, link, tag, tid, until) =>
-  db.collection("news").add({ title, text, link, ...(tag ? { tag } : {}), ...(tid ? { tid } : {}), ...(until ? { until } : {}), at: Timestamp.now(), by: "App", kind: "event" });
+  db.collection("news").add({ title, text, link: tid ? "#termin-" + tid : link, ...(tag ? { tag } : {}), ...(tid ? { tid } : {}), ...(until ? { until } : {}), at: Timestamp.now(), by: "App", kind: "event" });
 
 exports.onNews = onDocumentCreated("news/{id}", async event => {
   const n = event.data?.data(); if (!n) return;
@@ -100,21 +100,21 @@ async function syncWait(id, before, after) {
   const old = core.waitOf(t);
   if (wait.length === old.length && wait.every((p, i) => p === old[i])) return;
   await db.collection("trainings").doc(id).update({ wait });
-  if (promoted.length) await pushPlayers(promoted, { title: "Du bist nachgerückt", body: `${kindOf(after)} ${when(after)}: Ein Platz ist frei geworden – du bist jetzt dabei.`, link: "#training", tag: "wait-" + id });
+  if (promoted.length) await pushPlayers(promoted, { title: "Du bist nachgerückt", body: `${kindOf(after)} ${when(after)}: Ein Platz ist frei geworden – du bist jetzt dabei.`, link: "#termin-" + id, tag: "wait-" + id });
   const joined = wait.filter(p => !old.includes(p));
-  if (joined.length) await pushPlayers(joined, { title: "Warteliste", body: `${kindOf(after)} ${when(after)} ist voll – du stehst auf der Warteliste und rückst automatisch nach, sobald ein Platz frei wird.`, link: "#training", tag: "wait-" + id });
+  if (joined.length) await pushPlayers(joined, { title: "Warteliste", body: `${kindOf(after)} ${when(after)} ist voll – du stehst auf der Warteliste und rückst automatisch nach, sobald ein Platz frei wird.`, link: "#termin-" + id, tag: "wait-" + id });
 }
 
 // ---------- material ----------
 async function materialPush(id, b, a) {
   const mb = b.material || {}, ma = a.material || {};
   if (ma.pid && ma.state === "asked" && (mb.pid !== ma.pid || mb.state !== "asked"))
-    return pushPlayers([ma.pid], { title: "Kannst du das Material mitnehmen?", body: `${kindOf(a)} ${when(a)}: Bitte in der App zusagen oder absagen.`, link: "#training", tag: "mat-" + id });
+    return pushPlayers([ma.pid], { title: "Kannst du das Material mitnehmen?", body: `${kindOf(a)} ${when(a)}: Bitte in der App zusagen oder absagen.`, link: "#termin-" + id, tag: "mat-" + id });
   if (ma.pid && mb.pid === ma.pid && mb.state === "asked" && (ma.state === "yes" || ma.state === "no")) {
     const name = await nameOf(ma.pid);
     return pushTrainers(ma.state === "yes"
-      ? { title: "Material ist organisiert", body: `${name} nimmt das Material mit (${kindOf(a)} ${when(a)}).`, link: "#training", tag: "mat-" + id }
-      : { title: "Material: Absage", body: `${name} kann das Material nicht mitnehmen (${kindOf(a)} ${when(a)}). Bitte jemand anderen fragen.`, link: "#training", tag: "mat-" + id });
+      ? { title: "Material ist organisiert", body: `${name} nimmt das Material mit (${kindOf(a)} ${when(a)}).`, link: "#termin-" + id, tag: "mat-" + id }
+      : { title: "Material: Absage", body: `${name} kann das Material nicht mitnehmen (${kindOf(a)} ${when(a)}). Bitte jemand anderen fragen.`, link: "#termin-" + id, tag: "mat-" + id });
   }
 }
 
@@ -144,10 +144,10 @@ const absenceTrainings = async a => (await db.collection("trainings")
 exports.onAbsenceCreated = onDocumentCreated("absences/{id}", async event => {
   const a = event.data?.data(); if (!a) return;
   const at = ms(a.at) || Date.now(), docs = await absenceTrainings(a);
-  const late = docs.map(x => x.data()).filter(t => !t.cancelled && at >= ms(t.start) - DEADLINE_MS);
+  const lateDocs = docs.filter(x => !x.data().cancelled && at >= ms(x.data().start) - DEADLINE_MS), late = lateDocs.map(x => x.data());
   if (!a.byTrainer && late.length) {
     const name = await nameOf(a.pid);
-    await pushTrainers({ title: `${name} meldet sich kurzfristig ab`, body: `${REASON[a.reason] || "abwesend"}${a.note ? " (" + a.note + ")" : ""}: ${late.map(t => `${kindOf(t)} ${when(t)}`).join(", ")}. Bitte in der App bestätigen.`, link: "#training", tag: "abs-" + event.params.id });
+    await pushTrainers({ title: `${name} meldet sich kurzfristig ab`, body: `${REASON[a.reason] || "abwesend"}${a.note ? " (" + a.note + ")" : ""}: ${late.map(t => `${kindOf(t)} ${when(t)}`).join(", ")}. Bitte in der App bestätigen.`, link: late.length === 1 ? "#termin-" + lateDocs[0].id : "#training", tag: "abs-" + event.params.id });
   }
   for (const x of docs) { try { await syncWait(x.id, null, x.data()); } catch (e) { logger.error("waiting list failed", e); } }
 });
@@ -177,7 +177,7 @@ exports.deadlineReminder = onSchedule({ schedule: "every 15 minutes", timeZone: 
     await pushAll({
       title: `Erinnerung: ${kindOf(t)} ${day(ms(t.start))}`,
       body: `${when(t)}. Du bist dabei, außer du sagst bis ${time(deadline)} Uhr ab.`,
-      link: "#training", tag: "remind-" + d.id,
+      link: "#termin-" + d.id, tag: "remind-" + d.id,
     });
   }
 });
