@@ -6,6 +6,7 @@
 // late absences, open amounts) are only pushed, not kept in the feed.
 const { onDocumentCreated, onDocumentUpdated } = require("firebase-functions/v2/firestore");
 const { onSchedule } = require("firebase-functions/v2/scheduler");
+const { onCall, HttpsError } = require("firebase-functions/v2/https");
 const { setGlobalOptions, logger } = require("firebase-functions/v2");
 const { initializeApp } = require("firebase-admin/app");
 const { getFirestore, Timestamp } = require("firebase-admin/firestore");
@@ -15,7 +16,6 @@ const core = require("./core");
 
 initializeApp();
 setGlobalOptions({ region: "europe-west1", maxInstances: 2 });
-const db = getFirestore();
 
 const APP_URL = "https://stars-trainingsplaner.firebaseapp.com/";
 const TZ = "Europe/Rome";
@@ -34,9 +34,17 @@ const isLines = x => !!x && typeof x.slot === "object" && x.slot !== null;
 const isTrainerMember = m => ["trainer", "developer"].includes(m.role || "trainer");
 const plainTraining = (id, t) => ({ ...t, id, start: ms(t.start), responses: t.responses || {} });
 
+// Everything below runs once for the live database "(default)" and once for the test database
+// "test" (function names with "Test" at the end); each copy reads and writes only its own data.
+function forDatabase(dbId, suffix) {
+const db = dbId === "(default)" ? getFirestore() : getFirestore(dbId);
+const on = document => ({ document, database: dbId });
+const out = {};
+
 // Sends one message to the given devices and removes tokens that are no longer valid
 async function pushTokens(tokens, { title, body, link = "#training", tag }) {
   if (!tokens.length) return;
+  if (suffix) title = "TEST: " + title;   // pushes from the test database are marked
   const data = { title: String(title), body: String(body || ""), link: APP_URL + link, ...(tag ? { tag } : {}) };
   for (let i = 0; i < tokens.length; i += 500) {
     const chunk = tokens.slice(i, i + 500);
@@ -73,13 +81,13 @@ const nameOf = async pid => (await db.collection("roster").doc(pid).get()).data(
 const post = (title, text, link, tag, tid, until) =>
   db.collection("news").add({ title, text, link: tid ? "#termin-" + tid : link, ...(tag ? { tag } : {}), ...(tid ? { tid } : {}), ...(until ? { until } : {}), at: Timestamp.now(), by: "App", kind: "event" });
 
-exports.onNews = onDocumentCreated("news/{id}", async event => {
+out["onNews" + suffix] = onDocumentCreated(on("news/{id}"), async event => {
   const n = event.data?.data(); if (!n) return;
   const body = n.kind === "poll" ? `${n.text ? n.text + " – " : ""}Jetzt abstimmen: ${(n.options || []).join(" / ")}` : n.text;
   await pushAll({ title: n.kind === "poll" ? "Umfrage: " + n.title : n.title, body, link: n.link || "#info", tag: n.tag });
 });
 
-exports.onTrainingCreated = onDocumentCreated("trainings/{id}", async event => {
+out["onTrainingCreated" + suffix] = onDocumentCreated(on("trainings/{id}"), async event => {
   const t = event.data?.data(); if (!t || t.cancelled || t.bulk || ms(t.start) < Date.now()) return;   // bulk: announced by one message from the import
   await post(`Neuer Termin: ${kindOf(t)}`, `${when(t)}. Du bist automatisch dabei – absagen bis 24 Stunden vorher.`, "#training", "t-" + event.params.id, event.params.id);
 });
@@ -118,7 +126,7 @@ async function materialPush(id, b, a) {
   }
 }
 
-exports.onTrainingUpdated = onDocumentUpdated("trainings/{id}", async event => {
+out["onTrainingUpdated" + suffix] = onDocumentUpdated(on("trainings/{id}"), async event => {
   const b = event.data?.before?.data(), a = event.data?.after?.data(); if (!b || !a) return;
   if (ms(a.start) + 3 * 3600e3 < Date.now()) return;   // past appointments (results, no-shows) stay quiet
   const id = event.params.id;
@@ -141,7 +149,7 @@ const absenceTrainings = async a => (await db.collection("trainings")
 
 // A report after an appointment's deadline needs a trainer: tell the trainers right away.
 // Every absence can free places, so the waiting lists move up.
-exports.onAbsenceCreated = onDocumentCreated("absences/{id}", async event => {
+out["onAbsenceCreated" + suffix] = onDocumentCreated(on("absences/{id}"), async event => {
   const a = event.data?.data(); if (!a) return;
   const at = ms(a.at) || Date.now(), docs = await absenceTrainings(a);
   const lateDocs = docs.filter(x => !x.data().cancelled && at >= ms(x.data().start) - DEADLINE_MS), late = lateDocs.map(x => x.data());
@@ -151,13 +159,13 @@ exports.onAbsenceCreated = onDocumentCreated("absences/{id}", async event => {
   }
   for (const x of docs) { try { await syncWait(x.id, null, x.data()); } catch (e) { logger.error("waiting list failed", e); } }
 });
-exports.onAbsenceUpdated = onDocumentUpdated("absences/{id}", async event => {
+out["onAbsenceUpdated" + suffix] = onDocumentUpdated(on("absences/{id}"), async event => {
   const a = event.data?.after?.data(); if (!a) return;
   for (const x of await absenceTrainings(a)) { try { await syncWait(x.id, null, x.data()); } catch (e) { logger.error("waiting list failed", e); } }
 });
 
 // Every 15 minutes: remind once when the answer deadline ends within the next 3 hours
-exports.deadlineReminder = onSchedule({ schedule: "every 15 minutes", timeZone: TZ }, async () => {
+out["deadlineReminder" + suffix] = onSchedule({ schedule: "every 15 minutes", timeZone: TZ }, async () => {
   const now = Date.now();
   // Tidy up the Team-Info feed (see cleanup.js)
   try { const n = await cleanupNews(db, now); if (n) logger.info(`team info: ${n} old entries removed`); }
@@ -183,7 +191,7 @@ exports.deadlineReminder = onSchedule({ schedule: "every 15 minutes", timeZone: 
 });
 
 // Fridays at noon: every player with an open amount gets a reminder with the amount
-exports.paymentReminder = onSchedule({ schedule: "0 12 * * 5", timeZone: TZ }, async () => {
+out["paymentReminder" + suffix] = onSchedule({ schedule: "0 12 * * 5", timeZone: TZ }, async () => {
   const all = c => db.collection(c).get();
   const [roster, absences, trainings, billing, fines, kasse] = await Promise.all([
     all("roster"), all("absences"), all("trainings"), all("billing"), all("fines"), db.collection("kasse").doc("settings").get()]);
@@ -206,7 +214,7 @@ exports.paymentReminder = onSchedule({ schedule: "0 12 * * 5", timeZone: TZ }, a
 });
 
 // Every morning: birthday greetings in the Team-Info (gone at the end of the day)
-exports.birthdays = onSchedule({ schedule: "0 8 * * *", timeZone: TZ }, async () => {
+out["birthdays" + suffix] = onSchedule({ schedule: "0 8 * * *", timeZone: TZ }, async () => {
   const parts = Object.fromEntries(new Intl.DateTimeFormat("en-GB", { timeZone: TZ, year: "numeric", month: "2-digit", day: "2-digit" })
     .formatToParts(new Date()).map(p => [p.type, p.value]));
   const today = `${parts.month}-${parts.day}`, y = +parts.year;
@@ -219,4 +227,33 @@ exports.birthdays = onSchedule({ schedule: "0 8 * * *", timeZone: TZ }, async ()
     if (!r || r.active === false) continue;
     await post("Geburtstag 🎂", `${r.name} hat heute Geburtstag – alles Gute!`, "#info", `bday-${p.id}-${today}`, null, until);
   }
+});
+
+return out;
+}
+
+Object.assign(exports, forDatabase("(default)", ""), forDatabase("test", "Test"));
+
+// Developer only: fills the test database with a copy of the live data. Push tokens, the
+// Team-Info and the push log are not copied, so the test database never messages the team.
+const COPY = ["members", "players", "roster", "trainings", "drafts", "kasse", "billing", "fines", "ledger", "absences", "profiles"];
+const WIPE = [...COPY, "news", "tokens", "pushlog"];
+exports.copyToTest = onCall({ timeoutSeconds: 300 }, async req => {
+  const email = String(req.auth?.token?.email || "").toLowerCase();
+  if (!email || req.auth.token.email_verified !== true) throw new HttpsError("unauthenticated", "Bitte anmelden.");
+  const live = getFirestore(), test = getFirestore("test");
+  const me = await live.collection("members").doc(email).get();
+  if (!me.exists || me.data().role !== "developer") throw new HttpsError("permission-denied", "Nur für Entwickler.");
+  for (const c of WIPE) await test.recursiveDelete(test.collection(c));
+  const counts = {};
+  const w = test.bulkWriter();
+  for (const c of COPY) {
+    const snap = await live.collection(c).get();
+    counts[c] = snap.size;
+    // bulk: copied appointments do not announce themselves as "Neuer Termin"
+    snap.forEach(d => w.set(test.collection(c).doc(d.id), c === "trainings" ? { ...d.data(), bulk: true } : d.data()));
+  }
+  await w.close();
+  logger.info(`test database filled by ${email}`, counts);
+  return counts;
 });

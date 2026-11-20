@@ -1,7 +1,8 @@
 {
-  "firestore": {
-    "rules": "firestore.rules"
-  },
+  "firestore": [
+    { "database": "(default)", "rules": "firestore.rules" },
+    { "database": "test", "rules": "firestore.rules" }
+  ],
   "functions": {
     "source": "functions",
     "runtime": "nodejs22"
