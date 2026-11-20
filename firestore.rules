@@ -198,6 +198,34 @@ service cloud.firestore {
         && request.resource.data.by is string;
     }
 
+    // Cash book: expenses and corrections. Whoever enters one signs it with the own address;
+    // a second person (trainer or cashier) confirms it. Confirmed entries can no longer change.
+    match /ledger/{id} {
+      allow read: if isKasse();
+      allow create: if isKasse()
+        && request.resource.data.keys().hasOnly(['type', 'date', 'text', 'amount', 'by', 'byName', 'at'])
+        && request.resource.data.type in ['expense', 'correction']
+        && request.resource.data.date is number
+        && request.resource.data.text is string && request.resource.data.text.size() > 0 && request.resource.data.text.size() <= 200
+        && request.resource.data.amount is number && request.resource.data.amount != 0
+        && request.resource.data.amount >= -100000 && request.resource.data.amount <= 100000
+        && (request.resource.data.type == 'correction' || request.resource.data.amount > 0)
+        && request.resource.data.by == myEmail()
+        && request.resource.data.byName is string
+        && request.resource.data.at is timestamp;
+      // Four-eyes principle: only the confirmation fields, only once, never by the author
+      allow update: if isKasse()
+        && !('confirmedBy' in resource.data)
+        && resource.data.by != myEmail()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['confirmedBy', 'confirmedByName', 'confirmedAt'])
+        && request.resource.data.confirmedBy == myEmail()
+        && request.resource.data.confirmedByName is string
+        && request.resource.data.confirmedAt is timestamp;
+      // Unconfirmed entries may be withdrawn by the author or a trainer
+      allow delete: if isKasse() && !('confirmedBy' in resource.data)
+        && (resource.data.by == myEmail() || isTrainer());
+    }
+
     // Everything else stays closed.
     match /{document=**} {
       allow read, write: if false;

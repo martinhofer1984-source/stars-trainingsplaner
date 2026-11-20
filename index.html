@@ -139,7 +139,7 @@ body.ro .write{display:none!important}
     <a href="#info" data-view="info">Team-Info<span class="dot" id="navDot" hidden></span></a>
     <a href="#spieler" data-view="spieler" class="trainer-only">Spieler</a>
     <a href="#ergebnisse" data-view="ergebnisse" class="trainer-only">Ergebnisse</a>
-    <a href="#kasse" data-view="kasse" class="kasse-only">Kasse</a>
+    <a href="#kasse" data-view="kasse" class="kasse-only">Kasse<span class="dot" id="kasseDot" hidden></span></a>
     <a href="#statistik" data-view="statistik" class="trainer-only">Statistik</a>
     <a href="#konto" data-view="konto">Konto</a>
   </nav>
@@ -151,6 +151,13 @@ body.ro .write{display:none!important}
 .no-kasse .kasse-only{display:none!important}
 body:not(.is-dev) .dev-only{display:none!important}
 .pres.due{color:var(--warn)}
+.saldo{display:flex;justify-content:space-between;align-items:baseline;background:var(--navy-2, #10294d);border:1px solid var(--gold);border-radius:10px;padding:12px 14px}
+.saldo span{font-weight:600}
+.saldo b{font:700 26px var(--display);color:var(--gold);font-variant-numeric:tabular-nums}
+.saldo-rows{display:grid;gap:2px;margin:8px 2px;font-size:13.5px}
+.saldo-rows div{display:flex;justify-content:space-between;color:var(--muted);font-variant-numeric:tabular-nums}
+.pitem.pending{border-color:var(--warn)}
+.wait{color:var(--warn)}
 .charge{display:flex;align-items:center;gap:10px;padding:6px 0;border-bottom:1px solid var(--line)}
 .charge span{flex:1}
 .charge b{font-variant-numeric:tabular-nums}
@@ -327,6 +334,35 @@ td input.email{width:220px}
   </section>
 
   <section data-section="kasse" class="panel">
+    <h2>Kassenstand</h2>
+    <div id="saldoBox"></div>
+    <div class="row" style="margin-top:8px">
+      <details class="new" id="newExpense" style="flex:1 1 100%">
+        <summary>Ausgabe eintragen</summary>
+        <div class="form">
+          <label for="exDate">Datum<input id="exDate" type="date"></label>
+          <label for="exText">Wofür<input id="exText" maxlength="200" placeholder="z. B. Eisstunde, Schiri, Pucks"></label>
+          <label for="exAmount">Betrag (€)<input id="exAmount" type="number" min="0.01" step="0.01" placeholder="120"></label>
+        </div>
+        <div class="row" style="margin-top:10px"><button id="btnExpense" class="primary">Ausgabe eintragen</button></div>
+      </details>
+      <details class="new" id="newCorrection" style="flex:1 1 100%">
+        <summary>Kassenstand korrigieren</summary>
+        <div class="form">
+          <label for="coAmount">Betrag (€, minus = weniger in der Kasse)<input id="coAmount" type="number" step="0.01" placeholder="z. B. 350 oder -12,50"></label>
+          <label for="coText">Grund<input id="coText" maxlength="200" placeholder="z. B. Anfangsbestand, Kassensturz"></label>
+        </div>
+        <div class="row" style="margin-top:10px"><button id="btnCorrection" class="primary">Korrektur eintragen</button></div>
+      </details>
+    </div>
+    <p class="muted">Jede Ausgabe und Korrektur muss ein <b>zweiter</b> Trainer oder Kassier bestätigen (Vier-Augen-Prinzip). Bestätigte Einträge lassen sich nicht mehr ändern – ein Fehler wird mit einer Korrektur ausgeglichen.</p>
+    <div class="row"><label class="inline" for="ledgerFilter">Anzeigen
+      <select id="ledgerFilter"><option value="recent" selected>Letzte 20 Einträge</option><option value="pending">Nur unbestätigte</option><option value="all">Alle</option></select></label>
+      <button id="btnExpLedger">Kassenbuch exportieren</button></div>
+    <div id="ledgerList" class="plist"></div>
+  </section>
+
+  <section data-section="kasse" class="panel">
     <h2>Kasse <small id="kasseSum"></small></h2>
     <div class="row">
       <label class="inline" for="kasseFilter">Anzeigen
@@ -409,7 +445,7 @@ const POS = {G:"Tor", D:"Verteidigung", O:"Sturm"};
 const POS_SHORT = {G:"T", D:"V", O:"S"};
 const SCALE = 4;                 // 4 points of average difference = 10:1 expected odds
 const DEADLINE_MS = 24*3600e3;   // players can answer up to 24 h before the start (enforced in firestore.rules)
-const S = {user:null, authKnown:false, denied:false, role:null, me:null, players:{}, roster:{}, trainings:[], allTrainings:[], past:[], sel:null, drafts:{}, members:{}, news:[], kasse:null, billing:{}, fines:[],
+const S = {user:null, authKnown:false, denied:false, role:null, me:null, players:{}, roster:{}, trainings:[], allTrainings:[], past:[], sel:null, drafts:{}, members:{}, news:[], kasse:null, billing:{}, fines:[], ledger:[],
            loaded:{players:false, roster:false, trainings:false}, sort:{key:"name",dir:1}, statSort:{key:"rate",dir:-1}};
 let pendingRender = false;
 
@@ -481,7 +517,7 @@ async function initStore(){
 }
 
 function resetData(){
-  S.denied=false; S.role=null; S.me=null; S.players={}; S.roster={}; S.trainings=[]; S.allTrainings=[]; S.past=[]; S.sel=null; S.drafts={}; S.members={}; S.news=[]; S.kasse=null; S.billing={}; S.fines=[];
+  S.denied=false; S.role=null; S.me=null; S.players={}; S.roster={}; S.trainings=[]; S.allTrainings=[]; S.past=[]; S.sel=null; S.drafts={}; S.members={}; S.news=[]; S.kasse=null; S.billing={}; S.fines=[]; S.ledger=[];
   S.loaded={players:false, roster:false, trainings:false};
   document.body.classList.remove("is-player", "no-kasse", "is-dev");
 }
@@ -529,6 +565,11 @@ function watchData(){
   roleUnsubs.push(F.onSnapshot(F.doc(db, "kasse", "settings"), d => { S.kasse = d.exists() ? d.data() : null; render(); }, kasseFail));
   if (isKasse()) roleUnsubs.push(F.onSnapshot(F.collection(db, "billing"), s => { S.billing = {}; s.forEach(d => S.billing[d.id] = d.data()); render(); }, kasseFail));
   else if (S.me?.playerId) roleUnsubs.push(F.onSnapshot(F.doc(db, "billing", S.me.playerId), d => { S.billing = d.exists() ? {[d.id]: d.data()} : {}; render(); }, kasseFail));
+  // Cash book (expenses and corrections) for trainers and the cashier
+  if (isKasse()) roleUnsubs.push(F.onSnapshot(F.collection(db, "ledger"), s => {
+    S.ledger = s.docs.map(d => { const v = d.data(); return {id: d.id, ...v, at: v.at?.toMillis?.() ?? 0, confirmedAt: v.confirmedAt?.toMillis?.() ?? 0}; });
+    render();
+  }, kasseFail));
   const finesOf = s => { S.fines = s.docs.map(d => { const v = d.data(); return {id: d.id, ...v, at: v.at?.toMillis?.() ?? 0}; }); render(); };
   if (isKasse()) roleUnsubs.push(F.onSnapshot(F.collection(db, "fines"), finesOf, kasseFail));
   else if (S.me?.playerId) roleUnsubs.push(F.onSnapshot(F.query(F.collection(db, "fines"), F.where("pid", "==", S.me.playerId)), finesOf, kasseFail));
@@ -702,6 +743,16 @@ const api = {
     fire(fb.F.addDoc(fb.F.collection(fb.db, "fines"), {pid, reason, amount, at: fb.F.Timestamp.now(), by}));
   },
   delFine(id){ fire(fb.F.deleteDoc(fb.F.doc(fb.db, "fines", id))); },
+  // Cash book: expenses (amount > 0, taken out) and corrections (signed); a second person confirms
+  addLedger(type, date, text, amount){
+    const by = (S.me?.playerId && S.roster[S.me.playerId]?.name) || S.me?.name || "Trainer";
+    fire(fb.F.addDoc(fb.F.collection(fb.db, "ledger"), {type, date, text, amount, by: S.me.email, byName: by, at: fb.F.Timestamp.now()}));
+  },
+  confirmLedger(id){
+    const by = (S.me?.playerId && S.roster[S.me.playerId]?.name) || S.me?.name || "Trainer";
+    fire(fb.F.updateDoc(fb.F.doc(fb.db, "ledger", id), {confirmedBy: S.me.email, confirmedByName: by, confirmedAt: fb.F.Timestamp.now()}));
+  },
+  delLedger(id){ fire(fb.F.deleteDoc(fb.F.doc(fb.db, "ledger", id))); },
   setTariffs(season, tf){ fire(fb.F.setDoc(fb.F.doc(fb.db, "kasse", "settings"), {seasons: {[season]: tf}}, {merge: true})); },
   setCashier(pid, email, on){ fire(fb.F.setDoc(mRef(email), {name: S.players[pid]?.name || "", role: on ? "cashier" : "player", playerId: pid})); },
   answer(t, pid, val){ fire(fb.F.updateDoc(tRef(t.id), new fb.F.FieldPath("responses", pid), val)); },
@@ -1269,7 +1320,59 @@ const isPaid = (pid, c) => !!S.billing[pid]?.paid?.[c.key];
 const openCharges = pid => chargesOf(pid).filter(c => !isPaid(pid, c));
 const openOf = pid => openCharges(pid).reduce((s, c) => s + c.amount, 0);
 
+/* ---------- cash book ---------- */
+const ledgerDelta = e => e.type === "expense" ? -Math.abs(+e.amount || 0) : (+e.amount || 0);
+// Cash on hand: everything players paid (ticked items) minus expenses, plus corrections.
+// Unconfirmed entries count, but are shown separately until a second person confirms them.
+function kasseSaldo(){
+  let income = 0;
+  for (const pid of Object.keys(S.roster)) for (const c of chargesOf(pid)) if (isPaid(pid, c)) income += c.amount;
+  let expenses = 0, corrections = 0, pending = 0, nPending = 0;
+  for (const e of S.ledger) {
+    const d = ledgerDelta(e);
+    if (e.type === "expense") expenses += -d; else corrections += d;
+    if (!e.confirmedBy) { pending += d; nPending++; }
+  }
+  return {income, expenses, corrections, pending, nPending, total: income - expenses + corrections};
+}
+const myEmailLc = () => (S.me?.email || "").toLowerCase();
+const canConfirm = e => !e.confirmedBy && (e.by || "").toLowerCase() !== myEmailLc();
+const canDelete = e => !e.confirmedBy && ((e.by || "").toLowerCase() === myEmailLc() || isTrainer());
+const sign = n => (n > 0 ? "+" : n < 0 ? "−" : "") + euro(Math.abs(n));
+
+function renderLedger(){
+  if (!$("#exDate").value) $("#exDate").value = new Date(Date.now() - new Date().getTimezoneOffset() * 6e4).toISOString().slice(0, 10);
+  const k = kasseSaldo();
+  $("#saldoBox").innerHTML = `<div class="saldo"><span>Kassenstand</span><b>${euro(k.total)}</b></div>
+    <div class="saldo-rows">
+      <div><span>Einnahmen (bezahlte Posten)</span><span>${sign(k.income)}</span></div>
+      <div><span>Ausgaben</span><span>${sign(-k.expenses)}</span></div>
+      <div><span>Korrekturen</span><span>${sign(k.corrections)}</span></div>
+    </div>
+    ${k.nPending ? `<p class="note warn">${k.nPending} ${k.nPending === 1 ? "Eintrag wartet" : "Einträge warten"} auf Bestätigung (${sign(k.pending)}). Bestätigen kann nur, wer ihn nicht eingetragen hat.</p>` : ""}`;
+  const mode = $("#ledgerFilter").value;
+  let list = S.ledger.slice().sort((a, b) => (b.date || b.at) - (a.date || a.at) || b.at - a.at);
+  if (mode === "pending") list = list.filter(e => !e.confirmedBy);
+  else if (mode === "recent") list = list.slice(0, 20);
+  $("#ledgerList").innerHTML = !list.length ? `<div class="empty">${mode === "pending" ? "Alles bestätigt." : "Noch keine Ausgaben oder Korrekturen."}</div>`
+    : list.map(e => { const d = ledgerDelta(e);
+      return `<div class="pitem${e.confirmedBy ? "" : " pending"}"><div class="phead">
+        <div class="pinfo"><b>${esc(e.text || "")}</b><span>${e.type === "expense" ? "Ausgabe" : "Korrektur"} · ${dDay(e.date || e.at)} · eingetragen von ${esc(e.byName || e.by || "")}</span>
+          <span>${e.confirmedBy ? `✔ bestätigt von ${esc(e.confirmedByName || e.confirmedBy)}${e.confirmedAt ? " am " + dDay(e.confirmedAt) : ""}` : `<b class="wait">wartet auf Bestätigung</b>`}</span></div>
+        <div class="pres${d < 0 ? " due" : ""}">${sign(d)}</div>
+      </div>${!e.confirmedBy ? `<div class="row" style="justify-content:flex-end;margin-top:6px">
+        ${canConfirm(e) ? `<button class="primary" data-lconfirm="${esc(e.id)}">Bestätigen</button>` : `<span class="muted">Ein anderer Trainer oder der Kassier muss bestätigen.</span>`}
+        ${canDelete(e) ? `<button class="danger" data-ldel="${esc(e.id)}">Löschen</button>` : ""}</div>` : ""}
+      </div>`; }).join("");
+}
+function ledgerRows(){
+  return [["Datum", "Art", "Wofür / Grund", "Betrag €", "Eingetragen von", "Bestätigt von", "Bestätigt am"],
+    ...S.ledger.slice().sort((a, b) => (a.date || a.at) - (b.date || b.at)).map(e =>
+      [dateDe(e.date || e.at), e.type === "expense" ? "Ausgabe" : "Korrektur", e.text || "", ledgerDelta(e), e.byName || e.by || "", e.confirmedByName || "", e.confirmedAt ? dateDe(e.confirmedAt) : ""])];
+}
+
 function renderKasse(){
+  renderLedger();
   const start = kasseStart(), onlyOpen = $("#kasseFilter").value === "open";
   const people = Object.values(S.roster).map(r => ({...r, open: openOf(r.id)}))
     .filter(r => r.active || r.open > 0).sort(byName);
@@ -1417,7 +1520,10 @@ function visibleNews(){
 const unreadNews = () => visibleNews().filter(n => n.at > seenAt()).length;
 function renderUnread(){
   const n = view() === "info" ? 0 : unreadNews();
-  for (const el of [$("#menuDot"), $("#navDot")]) { el.hidden = !n; el.textContent = n > 9 ? "9+" : String(n); }
+  // Cash book entries waiting for my confirmation
+  const k = isKasse() ? S.ledger.filter(canConfirm).length : 0;
+  const show = (el, c) => { el.hidden = !c; el.textContent = c > 9 ? "9+" : String(c); };
+  show($("#navDot"), n); show($("#kasseDot"), k); show($("#menuDot"), n + k);
 }
 function renderNews(){
   const seen = seenAt(), news = visibleNews();
@@ -1603,6 +1709,26 @@ document.addEventListener("click", e => {
     else if (t.id==="btnExpStats") { const rg = $("#statRange").value; downloadCsv(`stars-statistik-${RANGE_NAME[rg] || rg}`, statsRows(rg)); }
     else if (t.id==="btnExpResults") downloadCsv("stars-ergebnisse", resultRows());
     else if (t.id==="btnExpKasse") downloadCsv("stars-kasse-uebersicht", kasseRows());
+    else if (t.id==="btnExpLedger") downloadCsv("stars-kassenbuch", ledgerRows());
+    else if (t.id==="btnExpense") {
+      const text = $("#exText").value.trim().slice(0, 200), amount = Math.round(Number($("#exAmount").value) * 100) / 100, d = $("#exDate").value;
+      if (!text) { status("Bitte eintragen, wofür das Geld ausgegeben wurde.", true); return; }
+      if (!Number.isFinite(amount) || amount <= 0 || amount > 100000) { status("Bitte einen Betrag über 0 eingeben.", true); return; }
+      const [yy, mm, dd] = (d || today()).split("-").map(Number);
+      api.addLedger("expense", new Date(yy, mm - 1, dd, 12).getTime(), text, amount);
+      $("#exText").value = ""; $("#exAmount").value = ""; $("#newExpense").open = false;
+      status(`Ausgabe ${euro(amount)} eingetragen – wartet auf Bestätigung durch einen zweiten Trainer oder Kassier.`);
+    }
+    else if (t.id==="btnCorrection") {
+      const text = $("#coText").value.trim().slice(0, 200), amount = Math.round(Number(String($("#coAmount").value).replace(",", ".")) * 100) / 100;
+      if (!text) { status("Bitte den Grund der Korrektur eintragen.", true); return; }
+      if (!Number.isFinite(amount) || amount === 0 || Math.abs(amount) > 100000) { status("Bitte einen Betrag ungleich 0 eingeben (minus = weniger in der Kasse).", true); return; }
+      api.addLedger("correction", Date.now(), text, amount);
+      $("#coText").value = ""; $("#coAmount").value = ""; $("#newCorrection").open = false;
+      status(`Korrektur ${sign(amount)} eingetragen – wartet auf Bestätigung.`);
+    }
+    else if (t.dataset.lconfirm) { api.confirmLedger(t.dataset.lconfirm); status("Bestätigt."); }
+    else if (t.dataset.ldel) confirmBtn(t, () => api.delLedger(t.dataset.ldel));
     else if (t.id==="btnExpPosten") downloadCsv("stars-kasse-posten", postenRows());
     else if (t.id==="btnFine") {
       const pid = $("#fnPlayer").value, reason = $("#fnReason").value.trim().slice(0, 200), amount = Math.round(Number($("#fnAmount").value) * 100) / 100;
@@ -1635,7 +1761,7 @@ document.addEventListener("click", e => {
 document.addEventListener("change", e => {
   const el = e.target;
   if (el.id === "statRange") { renderStats(); return; }
-  if (el.id === "kasseFilter" || el.id === "tariffSeason") { renderKasse(); return; }
+  if (el.id === "kasseFilter" || el.id === "tariffSeason" || el.id === "ledgerFilter") { renderKasse(); return; }
   if (el.dataset.plan) { api.setPlan(el.dataset.plan, el.value); return; }
   if (el.dataset.paid) { api.setPaid(el.dataset.paid, [el.dataset.key], el.checked); return; }
   if (el.dataset.gcost) { const v = Number(el.value || 0); if (!Number.isFinite(v) || v < 0 || v > 1000) { status("Bitte einen Betrag von 0 bis 1000 eingeben.", true); return; } api.setGameCost(el.dataset.gcost, Math.round(v * 100) / 100); return; }
