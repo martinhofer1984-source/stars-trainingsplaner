@@ -141,6 +141,7 @@ body.ro .write{display:none!important}
     <a href="#ergebnisse" data-view="ergebnisse" class="trainer-only">Ergebnisse</a>
     <a href="#kasse" data-view="kasse" class="kasse-only">Kasse<span class="dot" id="kasseDot" hidden></span></a>
     <a href="#statistik" data-view="statistik" class="trainer-only">Statistik</a>
+    <a href="#downloads" data-view="downloads">Downloads</a>
     <a href="#konto" data-view="konto">Konto</a>
   </nav>
   </div>
@@ -151,6 +152,9 @@ body.ro .write{display:none!important}
 .no-kasse .kasse-only{display:none!important}
 body:not(.is-dev) .dev-only{display:none!important}
 .pres.due{color:var(--warn)}
+a.pitem.dl{display:block;color:inherit;text-decoration:none}
+a.pitem.dl:hover{border-color:var(--gold)}
+.dlbtn{font:700 13px var(--body);color:var(--on-gold);background:var(--gold);border-radius:999px;padding:6px 14px;flex:none}
 .saldo{display:flex;justify-content:space-between;align-items:baseline;background:var(--navy-2, #10294d);border:1px solid var(--gold);border-radius:10px;padding:12px 14px}
 .saldo span{font-weight:600}
 .saldo b{font:700 26px var(--display);color:var(--gold);font-variant-numeric:tabular-nums}
@@ -404,6 +408,22 @@ td input.email{width:220px}
     <h2>Tarife</h2>
     <div class="row"><label class="inline" for="tariffSeason">Für <select id="tariffSeason"></select></label></div>
     <div id="tariffBox"></div>
+  </section>
+
+  <section data-section="downloads" class="panel">
+    <h2>Downloads</h2>
+    <p class="muted">Anleitungen als PDF. Antippen öffnet die Datei – speichern oder weiterschicken geht dann über den PDF-Betrachter bzw. „Teilen“.</p>
+    <div class="plist">
+      <a class="pitem dl" href="docs/stars-anleitung-spieler.pdf" target="_blank" rel="noopener"><div class="phead">
+        <div class="pinfo"><b>Anleitung für Spieler</b><span>Anmelden, App installieren, Push-Nachrichten, Zu- und Absagen, Teams und Linien, Beiträge</span></div>
+        <span class="dlbtn">PDF</span></div></a>
+      <a class="pitem dl trainer-only" href="docs/stars-anleitung-trainer.pdf" target="_blank" rel="noopener"><div class="phead">
+        <div class="pinfo"><b>Anleitung für Trainer</b><span>Termine, Anwesenheit, Teams und Linien, Spieler, Ergebnisse, Statistik, Kassenbuch kontrollieren</span></div>
+        <span class="dlbtn">PDF</span></div></a>
+      <a class="pitem dl kasse-only" href="docs/stars-anleitung-kassier.pdf" target="_blank" rel="noopener"><div class="phead">
+        <div class="pinfo"><b>Anleitung für den Kassier</b><span>Beitragsarten, Zahlungen abhaken, Zusatzkosten, Kassenbuch, Tarife, Export</span></div>
+        <span class="dlbtn">PDF</span></div></a>
+    </div>
   </section>
 
   <section data-section="konto" class="panel" id="myFeesPanel" hidden>
@@ -852,13 +872,14 @@ function view(){
   if (h === "ergebnisse" && isTrainer()) return "ergebnisse";
   if (h === "kasse" && isKasse()) return "kasse";
   if (h === "info") return "info";
+  if (h === "downloads") return "downloads";
   if (h === "konto") return "konto";
   return "training";
 }
 
 function render(){
   const v = view();
-  $(".menu").hidden = !["training","info","spieler","ergebnisse","kasse","statistik","konto"].includes(v);
+  $(".menu").hidden = !["training","info","spieler","ergebnisse","kasse","statistik","downloads","konto"].includes(v);
   const cur = document.querySelector(`nav a[data-view="${v}"]`); if (cur) $("#menuLabel").textContent = cur.firstChild.textContent;
   document.querySelectorAll("nav a").forEach(a => { if (a.dataset.view===v) a.setAttribute("aria-current","page"); else a.removeAttribute("aria-current"); });
   document.querySelectorAll("[data-section]").forEach(s => s.hidden = s.dataset.section !== v);
