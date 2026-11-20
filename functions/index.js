@@ -254,6 +254,48 @@ exports.copyToTest = onCall({ timeoutSeconds: 300 }, async req => {
     snap.forEach(d => w.set(test.collection(c).doc(d.id), c === "trainings" ? { ...d.data(), bulk: true } : d.data()));
   }
   await w.close();
+  counts.demo = await addTestCases(test, email, me.data());
   logger.info(`test database filled by ${email}`, counts);
   return counts;
 });
+
+// Test cases on top of the copied data, so every feature can be tried at once:
+// an own player entry for the developer, a training tomorrow and a game in 5 days, a training
+// within 24 hours with a late sick report (to confirm) and missing jerseys, a poll and a greeting.
+async function addTestCases(test, email, member) {
+  const H = 3600e3, D = 24 * H, now = Date.now();
+  const at = (days, hour) => { const x = new Date(now + days * D); x.setUTCHours(hour - 1, 0, 0, 0); return Timestamp.fromMillis(x.getTime()); };  // Rome = UTC+1 in winter
+  const added = [];
+  // the developer gets an own player entry (if not linked yet) to try everything as a player
+  let myPid = member.playerId || "";
+  if (!myPid) {
+    myPid = "test-ich";
+    const name = (member.name || "Ich") + " (Test)";
+    await test.collection("players").doc(myPid).set({ name, pos: "O", rating: 5, active: true, email });
+    await test.collection("roster").doc(myPid).set({ name, pos: "O", active: true, access: true });
+    await test.collection("members").doc(email).set({ playerId: myPid }, { merge: true });
+    added.push("eigener Spieler");
+  }
+  const roster = (await test.collection("roster").get()).docs.map(d => ({ id: d.id, ...d.data() }))
+    .filter(r => r.active && r.access && r.id !== myPid);
+  const T = (start, extra) => ({ start, place: "Eishalle (Test)", kind: "training", note: "Testtermin", cancelled: false, responses: {}, duration: 60, createdAt: now, bulk: true, ...extra });
+  const soon = test.collection("trainings").doc("test-heute");
+  await soon.set(T(Timestamp.fromMillis(now + 20 * H), {}));
+  await test.collection("trainings").doc("test-morgen").set(T(at(1, 20), {}));
+  await test.collection("trainings").doc("test-spiel").set(T(at(5, 21), { kind: "game", place: "Auswärts (Test)", duration: 90 }));
+  added.push("3 Termine");
+  if (roster.length >= 2) {
+    const [sick, keeper] = roster;
+    // jerseys: the responsible player cancelled the training within 24 hours
+    await test.collection("players").doc(keeper.id).set({ material: true }, { merge: true });
+    await test.collection("roster").doc(keeper.id).set({ material: true }, { merge: true });
+    await soon.update({ [`responses.${keeper.id}`]: "out" });
+    // late sick report for the training within 24 hours: waits for a trainer
+    await test.collection("absences").add({ pid: sick.id, from: now - H, to: now + 2 * D, reason: "krank", note: "Testfall", by: email, byName: "Test", byTrainer: false, at: Timestamp.now() });
+    added.push(`Spätabmeldung ${sick.name}`, `Trikots ${keeper.name}`);
+  }
+  await test.collection("news").add({ title: "Weihnachtsfeier (Test)", text: "Welcher Samstag passt euch?", options: ["Samstag, 12.12.", "Samstag, 19.12."], votes: {}, at: Timestamp.now(), by: "Test", kind: "poll" });
+  await test.collection("news").add({ title: "Willkommen in der Testdatenbank", text: "Hier kannst du alles ausprobieren – die Mannschaft sieht nichts davon.", at: Timestamp.now(), by: "Test", kind: "info" });
+  added.push("Umfrage", "Team-Info");
+  return added;
+}

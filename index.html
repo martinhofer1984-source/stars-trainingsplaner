@@ -495,7 +495,7 @@ td input.email{width:220px}
     <p id="dbInfo"></p>
     <p class="muted">Zum Ausprobieren, ohne die Mannschaft zu stören: Auf diesem Gerät wird dann statt der Live-Daten die Testdatenbank verwendet (roter Balken oben). Push-Nachrichten daraus beginnen mit „TEST:“ und gehen nur an Geräte, die im Testmodus Benachrichtigungen eingeschaltet haben.</p>
     <div class="row"><button id="btnDbSwitch" class="primary"></button><button class="danger" data-dbfill>Mit Live-Daten füllen</button></div>
-    <p class="muted">„Mit Live-Daten füllen“ löscht alles in der Testdatenbank und kopiert Spieler, Zugänge, Termine, Kasse, Abwesenheiten und Geburtstage aus der Live-Datenbank. Team-Info und Push-Anmeldungen werden nicht kopiert. Die Live-Daten bleiben unverändert.</p>
+    <p class="muted">„Mit Live-Daten füllen“ löscht alles in der Testdatenbank und kopiert Spieler, Zugänge, Termine, Kasse, Abwesenheiten und Geburtstage aus der Live-Datenbank. Team-Info und Push-Anmeldungen werden nicht kopiert. Dazu kommen Testfälle: ein eigener Spieler für dich (falls du keinem zugeordnet bist), drei Testtermine, eine Spätabmeldung zum Bestätigen, fehlende Trikots, eine Umfrage. Die Live-Daten bleiben unverändert.</p>
   </section>
 
   <section data-section="konto" class="panel dev-only">
@@ -573,8 +573,8 @@ async function fillTestDb(btn){
     const Fn = await import(SDK + "firebase-functions.js");
     const res = await Fn.httpsCallable(Fn.getFunctions(fb.app, "europe-west1"), "copyToTest", {timeout: 300000})();
     const c = res.data || {};
-    status(`Testdatenbank gefüllt: ${c.players ?? 0} Spieler, ${c.members ?? 0} Zugänge, ${c.trainings ?? 0} Termine.` + (TEST_DB ? " Wird neu geladen …" : ""));
-    if (TEST_DB) setTimeout(() => location.reload(), 1500);
+    status(`Testdatenbank gefüllt: ${c.players ?? 0} Spieler, ${c.members ?? 0} Zugänge, ${c.trainings ?? 0} Termine.` + (Array.isArray(c.demo) && c.demo.length ? ` Testfälle: ${c.demo.join(", ")}.` : "") + (TEST_DB ? " Wird neu geladen …" : ""));
+    if (TEST_DB) setTimeout(() => location.reload(), 4000);
   } catch (e) { status("Füllen hat nicht geklappt (" + (e?.message || e?.code || "Fehler") + ").", true); }
   btn.disabled = false;
 }
