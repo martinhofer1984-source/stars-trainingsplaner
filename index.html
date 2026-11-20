@@ -190,6 +190,15 @@ details.new summary{cursor:pointer;font-weight:600;padding-block:4px}
 .form{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:10px;margin-top:10px}
 .form label{display:grid;gap:4px;font-size:13px;color:var(--muted)}
 .chip.guest{border-style:dashed}
+.chip.wait{border-style:dashed;border-color:var(--gold);color:var(--gold)}
+.pill.wait{color:var(--gold);border-color:var(--gold);background:transparent}
+.mystatus .big.wait{color:var(--gold)}
+.poll{display:grid;gap:6px}
+.poll button{display:flex;justify-content:space-between;align-items:center;gap:10px;text-align:left}
+.poll button span{display:grid;gap:2px}
+.poll button small{color:var(--muted);font-weight:400}
+.poll button[aria-pressed="true"]{border-color:var(--gold);box-shadow:inset 4px 0 0 var(--gold)}
+.note .row{margin-top:8px}
 td input.email{width:220px}
 </style>
 
@@ -254,7 +263,7 @@ td input.email{width:220px}
 
   <section data-section="training" class="panel trainer-only" id="attPanel">
     <h2>Anwesend <small id="presentCount"></small></h2>
-    <p class="muted">Spieler mit Zugang sind automatisch dabei, bis sie absagen. Gäste ohne Zugang (gestrichelt) tippst du an. Als Trainer kannst du jederzeit ändern, auch nach der Absagefrist.</p>
+    <p class="muted">Spieler mit Zugang sind automatisch dabei, bis sie absagen. Gäste ohne Zugang (gestrichelt) tippst du an. Als Trainer kannst du jederzeit ändern, auch nach der Absagefrist. Ist der Termin voll, kommt ein Spieler beim Antippen auf die Warteliste (gold gestrichelt).</p>
     <div id="presentList" class="posgroup"></div>
   </section>
 
@@ -344,7 +353,9 @@ td input.email{width:220px}
       <summary>Neue Nachricht an alle</summary>
       <div class="form">
         <label for="nnTitle">Titel<input id="nnTitle" maxlength="80" placeholder="z. B. Trikots abholen"></label>
+        <label for="nnKind">Art<select id="nnKind"><option value="info" selected>Nachricht</option><option value="poll">Umfrage</option></select></label>
         <label for="nnText">Nachricht<textarea id="nnText" maxlength="1000" rows="4" placeholder="Was die Mannschaft wissen soll"></textarea></label>
+        <label for="nnOptions" id="nnOptWrap" hidden>Antworten (eine pro Zeile, 2 bis 8)<textarea id="nnOptions" maxlength="500" rows="4" placeholder="Samstag, 12.12.&#10;Samstag, 19.12."></textarea></label>
       </div>
       <div class="row" style="margin-top:10px"><button id="btnNews" class="primary">Senden</button></div>
       <p class="muted">Die Nachricht erscheint hier und kommt als Push-Nachricht bei allen an, die Benachrichtigungen eingeschaltet haben. Nach 7 Tagen wird sie automatisch gelöscht; Einträge zu einem Termin verschwinden, sobald er vorbei ist.</p>
@@ -444,6 +455,13 @@ td input.email{width:220px}
   <section data-section="konto" class="panel" id="myFeesPanel" hidden>
     <h2>Meine Beiträge</h2>
     <div id="myFees"></div>
+  </section>
+
+  <section data-section="konto" class="panel" id="bdayPanel" hidden>
+    <h2>Geburtstag</h2>
+    <p class="muted">Freiwillig: An deinem Geburtstag gratuliert die App in der Team-Info. Das Jahr wird nicht gespeichert.</p>
+    <div class="row"><select id="bdDay" aria-label="Tag"></select><select id="bdMonth" aria-label="Monat"></select>
+      <button id="btnBday" class="primary">Speichern</button><button id="btnBdayDel">Entfernen</button></div>
   </section>
 
   <section data-section="konto" class="panel">
@@ -552,7 +570,7 @@ async function initStore(){
 }
 
 function resetData(){
-  S.denied=false; S.role=null; S.me=null; S.players={}; S.roster={}; S.trainings=[]; S.allTrainings=[]; S.past=[]; S.sel=null; S.drafts={}; S.members={}; S.news=[]; S.kasse=null; S.billing={}; S.fines=[]; S.ledger=[]; S.absences=[];
+  S.denied=false; S.role=null; S.me=null; S.players={}; S.roster={}; S.trainings=[]; S.allTrainings=[]; S.past=[]; S.sel=null; S.drafts={}; S.members={}; S.news=[]; S.kasse=null; S.billing={}; S.fines=[]; S.ledger=[]; S.absences=[]; S.profile=null;
   S.loaded={players:false, roster:false, trainings:false};
   document.body.classList.remove("is-player", "no-kasse", "is-dev");
 }
@@ -605,6 +623,10 @@ function watchData(){
     S.absences = s.docs.map(d => { const v = d.data(); return {id: d.id, ...v, at: v.at?.toMillis?.() ?? Date.now()}; });
     render();
   }, e => status("Abwesenheiten konnten nicht geladen werden (" + (e?.code || "Fehler") + ").", true)));
+  // Own profile (birthday)
+  if (S.me?.playerId) roleUnsubs.push(F.onSnapshot(F.doc(db, "profiles", S.me.playerId), d => {
+    S.profile = d.exists() ? d.data() : null; fillBirthday(); render();
+  }, () => {}));
   // Cash book (expenses and corrections) for trainers and the cashier
   if (isKasse()) roleUnsubs.push(F.onSnapshot(F.collection(db, "ledger"), s => {
     S.ledger = s.docs.map(d => { const v = d.data(); return {id: d.id, ...v, at: v.at?.toMillis?.() ?? 0, confirmedAt: v.confirmedAt?.toMillis?.() ?? 0}; });
@@ -615,7 +637,7 @@ function watchData(){
   else if (S.me?.playerId) roleUnsubs.push(F.onSnapshot(F.query(F.collection(db, "fines"), F.where("pid", "==", S.me.playerId)), finesOf, kasseFail));
   // Team info: newest first
   roleUnsubs.push(F.onSnapshot(F.query(F.collection(db, "news"), F.orderBy("at", "desc"), F.limit(50)), s => {
-    S.news = s.docs.map(d => { const v = d.data(); return {id:d.id, ...v, at: v.at?.toMillis?.() ?? 0}; });
+    S.news = s.docs.map(d => { const v = d.data(); return {id:d.id, ...v, at: v.at?.toMillis?.() ?? 0, until: v.until?.toMillis?.() ?? null}; });
     render();
   }, dbFail));
   // Team drafts stay with the trainers until they are published into the training
@@ -633,7 +655,7 @@ function watchData(){
 
 // Jersey number 0-99, optional
 const validNr = n => Number.isInteger(n) && n >= 0 && n <= 99;
-const rosterOf = p => ({name:p.name, pos:p.pos, active:p.active!==false, access:!!p.email, ...(validNr(p.number) ? {number:p.number} : {})});
+const rosterOf = p => ({name:p.name, pos:p.pos, active:p.active!==false, access:!!p.email, ...(validNr(p.number) ? {number:p.number} : {}), ...(p.material ? {material: true} : {})});
 const nrOf = p => validNr(p?.number) ? p.number : null;
 const nrHTML = p => nrOf(p) !== null ? `<span class="nr">${nrOf(p)}</span>` : "";
 const nrText = p => nrOf(p) !== null ? `#${nrOf(p)} ` : "";
@@ -802,6 +824,22 @@ const api = {
   confirmAbsence(a, tid){ fire(fb.F.updateDoc(fb.F.doc(fb.db, "absences", a.id), new fb.F.FieldPath("confirmed", tid), true)); },
   setTariffs(season, tf){ fire(fb.F.setDoc(fb.F.doc(fb.db, "kasse", "settings"), {seasons: {[season]: tf}}, {merge: true})); },
   setCashier(pid, email, on){ fire(fb.F.setDoc(mRef(email), {name: S.players[pid]?.name || "", role: on ? "cashier" : "player", playerId: pid})); },
+  // Trainer: dabei, abgesagt or waiting list ("wait"); players on the list keep the answer "in"
+  setAnswer(t, pid, val){
+    const F = fb.F;
+    fire(F.updateDoc(tRef(t.id), new F.FieldPath("responses", pid), val === "out" ? "out" : "in", "wait", val === "wait" ? F.arrayUnion(pid) : F.arrayRemove(pid)));
+  },
+  askMaterial(t, pid){ api.updTraining(t.id, {material: {pid, state: "asked"}}); },
+  answerMaterial(t, yes){ api.updTraining(t.id, {material: {pid: S.me.playerId, state: yes ? "yes" : "no"}}); },
+  addPoll(title, text, options){
+    const by = (S.me?.playerId && S.roster[S.me.playerId]?.name) || S.me?.name || "Trainer";
+    fire(fb.F.addDoc(fb.F.collection(fb.db, "news"), {title, text, options, votes: {}, at: fb.F.Timestamp.now(), by, kind: "poll"}));
+  },
+  vote(n, idx){ fire(fb.F.updateDoc(fb.F.doc(fb.db, "news", n.id), new fb.F.FieldPath("votes", S.me.playerId), idx === null ? fb.F.deleteField() : idx)); },
+  setBirthday(v){
+    const ref = fb.F.doc(fb.db, "profiles", S.me.playerId);
+    fire(v ? fb.F.setDoc(ref, {birthday: v}) : fb.F.deleteDoc(ref));
+  },
   answer(t, pid, val){ fire(fb.F.updateDoc(tRef(t.id), new fb.F.FieldPath("responses", pid), val)); },
 };
 
@@ -854,7 +892,10 @@ const pendingAbsences = () => S.trainings.filter(t => !t.cancelled).flatMap(t =>
 
 function answerOf(t, pid){
   if (absenceState(t, pid) === "out") return "out";
-  const r = t.responses[pid]; if (r === "in" || r === "out") return r;
+  const r = t.responses[pid];
+  if (r === "out") return "out";
+  if (Array.isArray(t.wait) && t.wait.includes(pid)) return "wait";
+  if (r === "in") return "in";
   const ro = S.roster[pid]; return ro && ro.access && ro.active ? "in" : "out";
 }
 const listed = t => Object.values(S.roster).filter(r => r.active || t.responses[r.id] === "in");
@@ -877,6 +918,64 @@ function splitTrainings(){
 // Kind of appointment; older entries without a kind are trainings
 const isGame = t => t?.kind === "game";
 const kindOf = t => isGame(t) ? "Spiel" : "Training";
+
+/* ---------- capacity and waiting list ---------- */
+// Same limits as functions/core.js: games 3 full lines (15 field players) and 2 goalies,
+// trainings 20 field players and 2 goalies; defenders and forwards count together
+const CAP = {game: {field: 15, goal: 2}, training: {field: 20, goal: 2}};
+const capOf = t => isGame(t) ? CAP.game : CAP.training;
+const capTotal = t => capOf(t).field + capOf(t).goal;
+const slotOf = r => r?.pos === "G" ? "goal" : "field";
+const waitOf = t => Array.isArray(t.wait) ? t.wait : [];
+// Players on the waiting list in their order
+const waiting = t => waitOf(t).filter(pid => S.roster[pid] && answerOf(t, pid) === "wait").map(pid => S.roster[pid]);
+function slotCounts(t){ const c = {field: 0, goal: 0}; for (const r of attendees(t)) c[slotOf(r)]++; return c; }
+const overCap = t => { const c = slotCounts(t), cap = capOf(t); return {field: Math.max(0, c.field - cap.field), goal: Math.max(0, c.goal - cap.goal), c, cap}; };
+const isFull = (t, pid) => { const s = slotOf(S.roster[pid]); return slotCounts(t)[s] >= capOf(t)[s]; };
+// A trainer's tap in "Anwesend": dabei -> abgesagt (waiting list while there are too many),
+// waiting list -> abgesagt, abgesagt -> dabei (waiting list when full)
+function nextAnswer(t, pid){
+  const a = answerOf(t, pid), s = slotOf(S.roster[pid]), c = slotCounts(t), cap = capOf(t);
+  if (a === "in") return c[s] > cap[s] ? "wait" : "out";
+  if (a === "wait") return "out";
+  return c[s] >= cap[s] ? "wait" : "in";
+}
+
+/* ---------- material ---------- */
+// Players responsible for the team material (ticked in the player list)
+const keepers = () => Object.values(S.roster).filter(r => r.material && r.active).sort(byName);
+// Who brings the material: a responsible player who is there, else the player a trainer asked
+function materialOf(t){
+  const ks = keepers(); if (!ks.length || t.cancelled) return null;
+  const here = ks.find(r => answerOf(t, r.id) === "in");
+  if (here) return {state: "keeper", pid: here.id, keepers: ks};
+  const m = t.material && S.roster[t.material.pid] ? t.material : null;
+  if (m && m.state !== "no" && answerOf(t, m.pid) !== "in") return {state: "missing", dropped: m.pid, keepers: ks};
+  if (m) return {state: m.state, pid: m.pid, keepers: ks};
+  return {state: "missing", keepers: ks};
+}
+const materialMissing = t => { const m = materialOf(t); return !!m && (m.state === "missing" || m.state === "no"); };
+// Trainers: appointments within a week where nobody brings the material
+const materialAlerts = () => S.trainings.filter(t => !t.cancelled && t.start - Date.now() < 7 * 864e5 && materialMissing(t));
+// Players: requests waiting for my answer
+const materialAsks = () => S.trainings.filter(t => { const m = materialOf(t); return m?.state === "asked" && m.pid === S.me?.playerId; });
+function materialHTML(t){
+  const m = materialOf(t); if (!m) return "";
+  const nm = pid => esc(S.roster[pid]?.name || "?"), my = S.me?.playerId;
+  const kNames = m.keepers.map(r => esc(r.name)).join(", ");
+  if (m.state === "keeper") return `<p class="muted">Material: ${m.pid === my ? "du" : nm(m.pid)}</p>`;
+  if (m.pid === my && m.state === "asked") return `<div class="note warn"><b>Kannst du das Material mitnehmen?</b> ${kNames} ${m.keepers.length > 1 ? "sind" : "ist"} nicht dabei.
+    <div class="row"><button class="primary" data-matans="yes">Ja, nehme ich mit</button><button data-matans="no">Nein, geht nicht</button></div></div>`;
+  if (m.state === "yes") return `<p class="muted">Material: ${m.pid === my ? "du nimmst es mit" : nm(m.pid)} (für ${kNames})${m.pid === my ? ` <button data-matans="no">Geht doch nicht</button>` : ""}</p>`;
+  if (!isTrainer()) return `<p class="muted">Material: ${m.state === "asked" ? nm(m.pid) + " ist angefragt" : "noch offen"}</p>`;
+  const opts = attendees(t).filter(r => r.access && !(m.state === "no" && r.id === m.pid)).map(r => `<option value="${esc(r.id)}">${esc(r.name)}</option>`).join("");
+  const head = m.state === "asked" ? `${nm(m.pid)} ist angefragt – die Antwort steht noch aus.`
+    : m.state === "no" ? `${nm(m.pid)} kann das Material nicht mitnehmen. Wer nimmt es mit?`
+    : m.dropped ? `${nm(m.dropped)} hatte zugesagt, ist aber nicht mehr dabei. Wer nimmt es mit?`
+    : `${kNames} ${m.keepers.length > 1 ? "sind" : "ist"} nicht dabei. Wer nimmt das Material mit?`;
+  return `<div class="note warn"><b>Material:</b> ${head}
+    <div class="row"><select id="matPick" aria-label="Spieler für das Material">${opts}</select><button class="primary" data-matask="${esc(t.id)}">${m.state === "asked" ? "Jemand anderen fragen" : "Anfragen"}</button></div></div>`;
+}
 
 /* ---------- teams ---------- */
 const sum = t => t.reduce((s,p)=>s+(+p.rating||0),0);
@@ -947,8 +1046,8 @@ function renderTrainings(){
     let pill;
     if (t.cancelled) pill = `<span class="pill cancel">fällt aus</span>`;
     else if (!isTrainer() && my && absenceState(t, my)) pill = `<span class="pill">${absenceState(t, my) === "out" ? "abgemeldet" : "wartet"}</span>`;
-    else if (!isTrainer() && my) pill = answerOf(t, my) === "in" ? `<span class="pill in">dabei</span>` : `<span class="pill">abgesagt</span>`;
-    else pill = `<span class="pill in">${attendees(t).length} dabei</span>`;
+    else if (!isTrainer() && my) { const a = answerOf(t, my); pill = a === "in" ? `<span class="pill in">dabei</span>` : a === "wait" ? `<span class="pill wait">Warteliste</span>` : `<span class="pill">abgesagt</span>`; }
+    else { const o = overCap(t), w = waiting(t).length; pill = `<span class="pill ${o.field || o.goal ? "wait" : "in"}">${attendees(t).length} dabei${w ? ` · ${w} wartet` : ""}</span>`; }
     return `<button class="tcard" data-sel="${esc(t.id)}" aria-current="${t.id===S.sel}">
       <span class="tdate"><small>${dDay(t.start).slice(0,2)}</small>${dDay(t.start).slice(3)}</span>
       <span class="tinfo"><b>${tRange(t)} Uhr${t.place ? " · "+esc(t.place) : ""}</b><span>${kindOf(t)}${t.note ? " · "+esc(t.note) : ""}</span></span>
@@ -997,21 +1096,26 @@ function renderDetail(){
     </div>`;
   }
   else if (my && S.roster[my] && !t.cancelled) {
-    const a = answerOf(t, my);
+    const a = answerOf(t, my), place = waiting(t).findIndex(r => r.id === my) + 1;
     mine = `<div class="mystatus">
-      <span class="big ${a}">${a==="in" ? "Du bist dabei" : "Du hast abgesagt"}</span>
+      <span class="big ${a}">${a==="in" ? "Du bist dabei" : a==="wait" ? "Warteliste" : "Du hast abgesagt"}</span>
+      ${a==="wait" ? `<span class="muted">Platz ${place}: Der Termin ist voll. Wird ein Platz frei, rückst du automatisch nach und bekommst eine Push-Nachricht.</span>` : ""}
       ${late ? `<span class="muted">Absagefrist abgelaufen (${dDay(deadlineOf(t))} ${dTime(deadlineOf(t))}). Kurzfristig bitte direkt beim Trainer melden.</span>`
-             : `<button data-answer="${a==="in"?"out":"in"}" class="${a==="in"?"danger":"primary"}">${a==="in" ? "Absagen" : "Doch dabei"}</button>
+             : `<button data-answer="${a!=="out"?"out":"in"}" class="${a!=="out"?"danger":"primary"}">${a!=="out" ? "Absagen" : "Doch dabei"}</button>
                 <span class="muted">möglich bis ${dDay(deadlineOf(t))} ${dTime(deadlineOf(t))} Uhr</span>`}
     </div>`;
   }
   box.innerHTML = `<h2>${kindOf(t)} · ${dDay(t.start)} · ${tRange(t)} Uhr <small>${esc(t.place||"")}</small></h2>
     ${t.note ? `<p>${esc(t.note)}</p>` : ""}
     ${t.cancelled ? `<p class="note warn">Dieser Termin fällt aus.</p>` : mine}
-    ${t.cancelled ? "" : `<div class="names"><b>Dabei (${ins.length}):</b> Tor ${cnt("G")} · Verteidigung ${cnt("D")} · Sturm ${cnt("O")}<br>${ins.map(r=>esc(r.name)).join(", ") || "–"}</div>
+    ${t.cancelled ? "" : `<div class="names"><b>Dabei (${ins.length}, max. ${capTotal(t)}):</b> Tor ${cnt("G")} · Verteidigung ${cnt("D")} · Sturm ${cnt("O")}<br>${ins.map(r=>esc(r.name)).join(", ") || "–"}</div>
+    ${waiting(t).length ? `<div class="names"><b>Warteliste (${waiting(t).length}):</b> ${waiting(t).map(r => esc(r.name)).join(", ")}</div>` : ""}
     <div class="names"><b>Abgesagt (${outs.length}):</b> ${outs.map(r => { const ab = absenceState(t, r.id) === "out" && absenceFor(t, r.id); return esc(r.name) + (ab ? ` <small class="muted">(${isTrainer() ? ABS_REASON[ab.reason] || "abwesend" : "abwesend"})</small>` : ""); }).join(", ") || "–"}</div>
     ${isTrainer() ? Object.keys(S.roster).filter(pid => absenceState(t, pid) === "pending").map(pid => { const ab = absenceFor(t, pid);
       return `<p class="note warn"><b>${esc(S.roster[pid].name)}</b> hat sich nach der Frist abgemeldet (${ABS_REASON[ab.reason] || "abwesend"}${ab.note ? ": " + esc(ab.note) : ""}). <button class="primary" data-abconfirm="${esc(ab.id)}" data-tid="${esc(t.id)}">Abmeldung bestätigen</button></p>`; }).join("") : ""}
+    ${isTrainer() && (overCap(t).field || overCap(t).goal) ? (() => { const o = overCap(t);
+      return `<p class="note warn"><b>Zu viele:</b> ${[o.field ? `${o.c.field} Feldspieler (max. ${o.cap.field})` : "", o.goal ? `${o.c.goal} Torhüter (max. ${o.cap.goal})` : ""].filter(Boolean).join(" und ")}. Tippe unten bei „Anwesend“ an, wer auf die Warteliste kommt – Gäste zuerst. Sagt jemand ab, rückt der Erste der Warteliste automatisch nach.</p>`; })() : ""}
+    ${materialHTML(t)}
     <div class="row cal"><span class="muted">In meinen Kalender:</span>
       <a class="btn" href="${esc(googleCalUrl(t))}" target="_blank" rel="noopener">Google Kalender</a>
       <button data-ics="${esc(t.id)}">Kalenderdatei (iPhone, Outlook)</button>
@@ -1026,10 +1130,10 @@ function renderPresent(){
   const t = selTraining(), box = $("#presentList"); if (!t) return;
   const ps = Object.values(S.roster).filter(r => r.active || t.responses[r.id] === "in").sort(byName);
   const ins = attendees(t), cnt = k => ins.filter(r=>r.pos===k).length;
-  $("#presentCount").textContent = `${ins.length} Spieler · Tor ${cnt("G")} · Verteidigung ${cnt("D")} · Sturm ${cnt("O")}`;
+  $("#presentCount").textContent = `${ins.length} von max. ${capTotal(t)} · Tor ${cnt("G")} · Verteidigung ${cnt("D")} · Sturm ${cnt("O")}${waiting(t).length ? ` · ${waiting(t).length} auf der Warteliste` : ""}`;
   if (!ps.length) { box.innerHTML = `<div class="empty">${S.loaded.roster ? "Noch keine Spieler. Lege sie unter „Spieler“ an." : "Spieler werden geladen …"}</div>`; return; }
   box.innerHTML = ["G","D","O"].map(k => `<div class="posgroup"><div class="poshead">${POS[k]}</div><div class="chips">${
-    ps.filter(r=>r.pos===k).map(r=>`<button class="chip${r.access?"":" guest"}" data-toggle="${esc(r.id)}" aria-pressed="${answerOf(t,r.id)==="in"}">${esc(r.name)}<b>${fmt(+(S.players[r.id]?.rating)||5)}</b></button>`).join("")
+    ps.filter(r=>r.pos===k).map(r=>`<button class="chip${r.access?"":" guest"}${answerOf(t,r.id)==="wait"?" wait":""}" data-toggle="${esc(r.id)}" aria-pressed="${answerOf(t,r.id)==="in"}">${esc(r.name)}<b>${fmt(+(S.players[r.id]?.rating)||5)}</b></button>`).join("")
   }</div></div>`).join("");
   if (cnt("G")===1) box.insertAdjacentHTML("beforeend", `<p class="note warn">Nur ein Torhüter dabei – ein Team spielt ohne.</p>`);
 }
@@ -1215,7 +1319,7 @@ function renderPlayers(){
   const {key, dir} = S.sort;
   const rows = all.slice().sort((a,b)=> (a.active===false)-(b.active===false) || (key==="name" ? byName(a,b) : key==="number" ? (nrOf(a) ?? 999)-(nrOf(b) ?? 999) : key==="pos" ? "GDO".indexOf(a.pos)-"GDO".indexOf(b.pos) : (+a.rating||0)-(+b.rating||0)) * dir);
   const th = (k,l,c="") => `<th class="${c}" data-sort="${k}" aria-sort="${key===k?(dir>0?"ascending":"descending"):"none"}">${l}${key===k?(dir>0?" ▲":" ▼"):""}</th>`;
-  $("#playerTable").innerHTML = `<table><thead><tr>${th("name","Name")}${th("number","Nr.","num")}${th("pos","Position")}${th("rating","Stärke","num")}<th>Zugang (E-Mail)</th><th>Kassier</th><th>Aktiv</th><th><span hidden>Löschen</span></th></tr></thead><tbody>${
+  $("#playerTable").innerHTML = `<table><thead><tr>${th("name","Name")}${th("number","Nr.","num")}${th("pos","Position")}${th("rating","Stärke","num")}<th>Zugang (E-Mail)</th><th>Kassier</th><th>Material</th><th>Aktiv</th><th><span hidden>Löschen</span></th></tr></thead><tbody>${
     rows.map(p=>`<tr class="${p.active===false?"inactive":""}" data-pid="${esc(p.id)}">
       <td><input class="pname" data-f="name" value="${esc(p.name)}" aria-label="Name"></td>
       <td class="num"><input class="nr" data-f="number" type="number" min="0" max="99" step="1" value="${nrOf(p) ?? ""}" placeholder="–" aria-label="Nummer ${esc(p.name)}"></td>
@@ -1224,6 +1328,7 @@ function renderPlayers(){
       <td><input class="email" data-f="email" type="email" value="${esc(p.email||"")}" placeholder="Gast – kein Zugang" aria-label="Zugang ${esc(p.name)}"></td>
       <td>${(() => { const em = (p.email||"").toLowerCase(), ok = em && em !== S.me?.email && !isOtherTrainer(em);
         return `<input type="checkbox" data-cashier="${esc(p.id)}" ${S.members[em]?.role === "cashier" ? "checked" : ""} ${ok ? "" : "disabled"} aria-label="${esc(p.name)} ist Kassier" title="${ok ? "Kassier: verwaltet die Kasse" : "Nur für Spieler mit Zugang"}">`; })()}</td>
+      <td><input type="checkbox" data-f="material" ${p.material?"checked":""} aria-label="${esc(p.name)} ist für das Material verantwortlich" title="Verantwortlich für das Material"></td>
       <td><input type="checkbox" data-f="active" ${p.active!==false?"checked":""} aria-label="${esc(p.name)} aktiv"></td>
       <td><button class="danger" data-del="${esc(p.id)}" aria-label="${esc(p.name)} löschen">Löschen</button></td></tr>`).join("")
   }</tbody></table>`;
@@ -1608,6 +1713,7 @@ const newsTid = n => n.tid || (/^(?:t|teams|lines)-(.+)$/.exec(n.tag || "") || [
 function visibleNews(){
   const old = Date.now() - NEWS_DAYS * 864e5;
   return S.news.filter(n => {
+    if (n.until) return n.until > Date.now();
     const tid = n.kind === "event" ? newsTid(n) : null;
     if (!tid) return n.at >= old;
     const t = S.allTrainings.find(x => x.id === tid);
@@ -1619,10 +1725,20 @@ function renderUnread(){
   const n = view() === "info" ? 0 : unreadNews();
   // Cash book entries waiting for my confirmation
   const k = isKasse() ? S.ledger.filter(canConfirm).length : 0;
-  const ab = isTrainer() ? pendingAbsences().length : 0;
+  // Termine: late absences and missing material for trainers, material requests for players
+  const ab = isTrainer() ? pendingAbsences().length + materialAlerts().length : materialAsks().length;
   const show = (el, c) => { el.hidden = !c; el.textContent = c > 9 ? "9+" : String(c); };
   show($("#termDot"), ab);
   show($("#navDot"), n); show($("#kasseDot"), k); show($("#menuDot"), n + k + ab);
+}
+// Poll: one button per answer with the names of who chose it; tapping again takes the vote back
+function pollHTML(n){
+  const votes = n.votes || {}, my = S.me?.playerId, total = Object.keys(votes).length;
+  return `<div class="poll">${(n.options || []).map((o, i) => {
+    const who = Object.keys(votes).filter(p => votes[p] === i).map(p => S.roster[p]?.name || "?").sort((a, b) => a.localeCompare(b, "de"));
+    return `<button data-vote="${esc(n.id)}" data-opt="${i}" aria-pressed="${votes[my] === i}" ${my ? "" : "disabled"}>
+      <span><b>${esc(o)}</b>${who.length ? `<small>${who.map(esc).join(", ")}</small>` : ""}</span><b>${who.length}</b></button>`;
+  }).join("")}<small class="muted">${total} Stimme${total === 1 ? "" : "n"}${my ? " · antippen zum Abstimmen, nochmal tippen nimmt die Stimme zurück" : ""}</small></div>`;
 }
 function renderNews(){
   const seen = seenAt(), news = visibleNews();
@@ -1631,7 +1747,8 @@ function renderNews(){
     : news.map(n => `<div class="nitem${n.at > seen ? " unread" : ""}${n.kind === "event" ? " auto" : ""}">
         <h3>${esc(n.title || "")}<small>${n.at ? dDay(n.at) + " " + dTime(n.at) : ""}</small></h3>
         ${n.text ? `<p>${esc(n.text)}</p>` : ""}
-        <span class="muted">${n.kind === "event" ? "automatisch" : "von " + esc(n.by || "Trainer")}</span>
+        ${n.kind === "poll" ? pollHTML(n) : ""}
+        <span class="muted">${n.kind === "event" ? "automatisch" : (n.kind === "poll" ? "Umfrage von " : "von ") + esc(n.by || "Trainer")}</span>
         ${isTrainer() ? `<div class="row"><button class="danger" data-newsdel="${esc(n.id)}">Löschen</button></div>` : ""}
       </div>`).join("");
   // Opening the tab marks everything as read
@@ -1707,7 +1824,20 @@ async function testPush(){
   } catch (e) { status("Test hat nicht geklappt (" + (e?.message || "Fehler") + ").", true); }
 }
 
+const MONTHS = ["Januar", "Februar", "März", "April", "Mai", "Juni", "Juli", "August", "September", "Oktober", "November", "Dezember"];
+// Puts the stored birthday into the selects (only when it arrives, so a choice in progress stays)
+function fillBirthday(){
+  const d = $("#bdDay"), m = $("#bdMonth");
+  if (!d.options.length) {
+    d.innerHTML = `<option value="">Tag</option>` + Array.from({length: 31}, (_, i) => `<option value="${String(i + 1).padStart(2, "0")}">${i + 1}.</option>`).join("");
+    m.innerHTML = `<option value="">Monat</option>` + MONTHS.map((x, i) => `<option value="${String(i + 1).padStart(2, "0")}">${x}</option>`).join("");
+  }
+  const [mm, dd] = (S.profile?.birthday || "-").split("-");
+  d.value = dd || ""; m.value = mm || "";
+}
 function renderKonto(){
+  $("#bdayPanel").hidden = !S.me?.playerId || !S.roster[S.me.playerId];
+  if (!$("#bdDay").options.length) fillBirthday();
   $("#userEmail").textContent = S.user?.email || "";
   $("#netState").textContent = navigator.onLine ? "" : "· offline – Änderungen werden übertragen, sobald wieder Netz da ist";
   const my = S.me?.playerId && (S.roster[S.me.playerId]?.name);
@@ -1737,10 +1867,32 @@ document.addEventListener("click", e => {
     if (t.dataset.sel) { S.sel = t.dataset.sel; render(); $("#detailPanel").scrollIntoView({behavior:"smooth", block:"start"}); }
     else if (t.dataset.answer && tr) {
       if (Date.now() >= deadlineOf(tr)) { status("Die Absagefrist ist abgelaufen. Bitte direkt beim Trainer melden.", true); return; }
-      api.answer(tr, S.me.playerId, t.dataset.answer); status(t.dataset.answer === "out" ? "Abgesagt." : "Du bist wieder dabei.");
+      const full = t.dataset.answer === "in" && isFull(tr, S.me.playerId);
+      api.answer(tr, S.me.playerId, t.dataset.answer);
+      status(t.dataset.answer === "out" ? "Abgesagt." : full ? `Der Termin ist voll – du kommst auf die Warteliste und rückst automatisch nach, sobald ein Platz frei wird.` : "Du bist wieder dabei.");
     }
     else if (t.dataset.toggle && tr && absenceState(tr, t.dataset.toggle) === "out") status(`${S.roster[t.dataset.toggle]?.name || "Der Spieler"} ist für diesen Termin abgemeldet. Zum Ändern die Abwesenheit oben unter „Abwesenheit melden“ beenden.`, true);
-    else if (t.dataset.toggle && tr) api.answer(tr, t.dataset.toggle, answerOf(tr, t.dataset.toggle) === "in" ? "out" : "in");
+    else if (t.dataset.toggle && tr) {
+      const pid = t.dataset.toggle, nx = nextAnswer(tr, pid);
+      api.setAnswer(tr, pid, nx);
+      if (nx === "wait") status(`${S.roster[pid]?.name || "Der Spieler"} steht auf der Warteliste (Platz ${waiting(tr).length + 1}).`);
+    }
+    else if (t.dataset.matask && tr) {
+      const pid = $("#matPick")?.value; if (!pid) { status("Niemand mit Zugang ist dabei, den du fragen könntest.", true); return; }
+      api.askMaterial(tr, pid); status(`${S.roster[pid]?.name} wird per Push-Nachricht gefragt.`);
+    }
+    else if (t.dataset.matans && tr) { const yes = t.dataset.matans === "yes"; api.answerMaterial(tr, yes); status(yes ? "Danke! Du nimmst das Material mit." : "Abgesagt – der Trainer fragt jemand anderen."); }
+    else if (t.dataset.vote) {
+      const n = S.news.find(x => x.id === t.dataset.vote), i = +t.dataset.opt; if (!n || !S.me?.playerId) return;
+      api.vote(n, (n.votes || {})[S.me.playerId] === i ? null : i);
+    }
+    else if (t.id === "btnBday") {
+      const dd = $("#bdDay").value, mm = $("#bdMonth").value;
+      if (!dd || !mm) { status("Bitte Tag und Monat wählen.", true); return; }
+      if (+dd > [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][+mm - 1]) { status("Diesen Tag gibt es im gewählten Monat nicht.", true); return; }
+      api.setBirthday(`${mm}-${dd}`); status("Geburtstag gespeichert.");
+    }
+    else if (t.id === "btnBdayDel") { api.setBirthday(null); status("Geburtstag entfernt."); }
     else if (t.id === "btnAbsence") {
       const pid = isTrainer() ? $("#abPlayer").value : S.me?.playerId;
       if (!pid || !S.roster[pid]) { status("Dein Zugang ist mit keinem Spieler verknüpft – bitte beim Trainer melden.", true); return; }
@@ -1874,8 +2026,12 @@ document.addEventListener("click", e => {
     else if (t.id==="btnNews") {
       const title = $("#nnTitle").value.trim().slice(0,80), text = $("#nnText").value.trim().slice(0,1000);
       if (!title) { status("Bitte einen Titel eingeben.", true); return; }
-      api.addNews(title, text); $("#nnTitle").value = ""; $("#nnText").value = ""; $("#newNews").open = false;
-      status("Nachricht gesendet.");
+      if ($("#nnKind").value === "poll") {
+        const options = [...new Set($("#nnOptions").value.split("\n").map(x => x.trim().slice(0, 60)).filter(Boolean))];
+        if (options.length < 2 || options.length > 8) { status("Eine Umfrage braucht 2 bis 8 Antworten, eine pro Zeile.", true); return; }
+        api.addPoll(title, text, options); $("#nnOptions").value = ""; status("Umfrage gesendet.");
+      } else { api.addNews(title, text); status("Nachricht gesendet."); }
+      $("#nnTitle").value = ""; $("#nnText").value = ""; $("#nnKind").value = "info"; $("#nnOptWrap").hidden = true; $("#btnNews").textContent = "Senden"; $("#newNews").open = false;
     }
     else if (t.dataset.newsdel) confirmBtn(t, () => api.delNews(t.dataset.newsdel));
   } catch(err) { status("Das hat nicht geklappt ("+(err?.code||err?.message||"Fehler")+"). Bitte nochmal versuchen.", true); }
@@ -1883,6 +2039,7 @@ document.addEventListener("click", e => {
 document.addEventListener("change", e => {
   const el = e.target;
   if (el.id === "statRange") { renderStats(); return; }
+  if (el.id === "nnKind") { $("#nnOptWrap").hidden = el.value !== "poll"; $("#btnNews").textContent = el.value === "poll" ? "Umfrage senden" : "Senden"; return; }
   if (el.id === "kasseFilter" || el.id === "tariffSeason" || el.id === "ledgerFilter") { renderKasse(); return; }
   if (el.dataset.plan) { api.setPlan(el.dataset.plan, el.value); return; }
   if (el.dataset.paid) { api.setPaid(el.dataset.paid, [el.dataset.key], el.checked); return; }
@@ -1915,7 +2072,7 @@ document.addEventListener("change", e => {
   if (f==="email") { if (!api.setAccess(id, el.value.trim().toLowerCase())) el.value = S.players[id].email || ""; return; }
   let v;
   if (f==="rating") v = round2(clamp(+el.value||5));
-  else if (f==="active") v = el.checked;
+  else if (f==="active" || f==="material") v = el.checked;
   else if (f==="name") { v = el.value.trim().slice(0,80); if (!v) { el.value = S.players[id].name; return; } }
   else v = el.value;
   api.updPlayer(id, {[f]:v});

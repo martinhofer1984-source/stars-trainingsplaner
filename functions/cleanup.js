@@ -1,6 +1,7 @@
 // Removes old entries from the Team-Info feed ("news"):
 //  - automatic entries about an appointment once it is over (or deleted)
-//  - everything else (trainer messages, entries without appointment) after 7 days
+//  - entries with an end time ("until", e.g. birthdays) at that time
+//  - everything else (trainer messages, polls, entries without appointment) after 7 days
 const INFO_DAYS = 7;
 const OVER_FALLBACK_MS = 2 * 3600e3;   // appointments without a duration count as 2 hours
 
@@ -20,7 +21,8 @@ async function cleanupNews(db, now = Date.now()) {
   const old = now - INFO_DAYS * 24 * 3600e3, gone = [];
   for (const d of snap.docs) {
     const n = d.data(), tid = n.kind === "event" ? tidOf(n) : null;
-    if (tid) { const t = trainings.get(tid); if (!t || endOf(t) <= now) gone.push(d.ref); }
+    if (n.until) { if (ms(n.until) <= now) gone.push(d.ref); }
+    else if (tid) { const t = trainings.get(tid); if (!t || endOf(t) <= now) gone.push(d.ref); }
     else if (ms(n.at) < old) gone.push(d.ref);
   }
   for (let i = 0; i < gone.length; i += 400) {

@@ -62,7 +62,8 @@ service cloud.firestore {
     match /players/{playerId} {
       allow read, delete: if isTrainer();
       allow create, update: if isTrainer()
-        && request.resource.data.keys().hasOnly(['name', 'pos', 'rating', 'active', 'email', 'number'])
+        && request.resource.data.keys().hasOnly(['name', 'pos', 'rating', 'active', 'email', 'number', 'material'])
+        && (!('material' in request.resource.data) || request.resource.data.material is bool)
         && validNumber(request.resource.data)
         && request.resource.data.name is string && request.resource.data.name.size() <= 80
         && request.resource.data.pos in ['G', 'D', 'O']
@@ -76,7 +77,8 @@ service cloud.firestore {
       allow read: if isMember();
       allow delete: if isTrainer();
       allow create, update: if isTrainer()
-        && request.resource.data.keys().hasOnly(['name', 'pos', 'active', 'access', 'number'])
+        && request.resource.data.keys().hasOnly(['name', 'pos', 'active', 'access', 'number', 'material'])
+        && (!('material' in request.resource.data) || request.resource.data.material is bool)
         && validNumber(request.resource.data)
         && request.resource.data.name is string && request.resource.data.name.size() <= 80
         && request.resource.data.pos in ['G', 'D', 'O']
@@ -89,10 +91,15 @@ service cloud.firestore {
       allow delete: if isTrainer();
       allow create: if isTrainer() && validTraining(request.resource.data);
       allow update: if (isTrainer() && validTraining(request.resource.data))
-        || ownAnswer();
+        || ownAnswer() || ownMaterial();
 
       function validTraining(t) {
-        return t.keys().hasOnly(['start', 'place', 'kind', 'note', 'cancelled', 'responses', 'teams', 'lines', 'duration', 'noshow', 'result', 'bulk', 'createdAt'])
+        return t.keys().hasOnly(['start', 'place', 'kind', 'note', 'cancelled', 'responses', 'teams', 'lines', 'duration', 'noshow', 'result', 'bulk', 'createdAt', 'wait', 'material'])
+          && (!('wait' in t) || (t.wait is list && t.wait.size() <= 60))
+          && (!('material' in t) || t.material == null || (t.material is map
+              && t.material.keys().hasOnly(['pid', 'state'])
+              && t.material.pid is string
+              && t.material.state in ['asked', 'yes', 'no']))
           && (!('bulk' in t) || t.bulk is bool)
           && (!('result' in t) || t.result == null || (t.result is map
               && t.result.keys().hasOnly(['a', 'b'])
@@ -118,6 +125,19 @@ service cloud.firestore {
           && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['responses'])
           && request.resource.data.responses.diff(resource.data.responses).affectedKeys().hasOnly([myPlayerId()])
           && request.resource.data.responses[myPlayerId()] in ['in', 'out'];
+      }
+
+      // The player asked to bring the material answers yes or no (until the appointment starts)
+      function ownMaterial() {
+        return isMember()
+          && myPlayerId() != ''
+          && resource.data.get('material', null) is map
+          && resource.data.material.pid == myPlayerId()
+          && request.time < resource.data.start
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['material'])
+          && request.resource.data.material.keys().hasOnly(['pid', 'state'])
+          && request.resource.data.material.pid == myPlayerId()
+          && request.resource.data.material.state in ['yes', 'no'];
       }
     }
 
@@ -147,12 +167,37 @@ service cloud.firestore {
       allow read: if isMember();
       allow delete: if isTrainer();
       allow create: if isTrainer()
-        && request.resource.data.keys().hasOnly(['title', 'text', 'at', 'by', 'kind'])
+        && request.resource.data.keys().hasOnly(['title', 'text', 'at', 'by', 'kind', 'options', 'votes'])
         && request.resource.data.title is string && request.resource.data.title.size() > 0 && request.resource.data.title.size() <= 80
         && request.resource.data.text is string && request.resource.data.text.size() <= 1000
         && request.resource.data.by is string && request.resource.data.by.size() <= 80
         && request.resource.data.at is timestamp
-        && request.resource.data.kind == 'info';
+        && ((request.resource.data.kind == 'info' && !('options' in request.resource.data) && !('votes' in request.resource.data))
+          || (request.resource.data.kind == 'poll'
+              && request.resource.data.options is list
+              && request.resource.data.options.size() >= 2 && request.resource.data.options.size() <= 8
+              && request.resource.data.votes == {}));
+      // Polls: every player sets or removes only the own vote (index of an option)
+      allow update: if isMember()
+        && resource.data.kind == 'poll'
+        && myPlayerId() != ''
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['votes'])
+        && request.resource.data.votes is map
+        && request.resource.data.votes.diff(resource.data.votes).affectedKeys().hasOnly([myPlayerId()])
+        && (!(myPlayerId() in request.resource.data.votes)
+            || (request.resource.data.votes[myPlayerId()] is int
+                && request.resource.data.votes[myPlayerId()] >= 0
+                && request.resource.data.votes[myPlayerId()] < resource.data.options.size()));
+    }
+
+    // Player profile: the birthday (month-day, no year) is entered by the player in the app
+    match /profiles/{pid} {
+      allow read: if isMember();
+      allow create, update: if isMember() && pid == myPlayerId()
+        && request.resource.data.keys().hasOnly(['birthday'])
+        && request.resource.data.birthday is string
+        && request.resource.data.birthday.matches('^(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])$');
+      allow delete: if isMember() && pid == myPlayerId();
     }
 
     // Push tokens: each member registers and removes the own devices; nobody reads them
