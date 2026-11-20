@@ -135,7 +135,7 @@ body.ro .write{display:none!important}
   <div class="menu">
   <button id="menuBtn" aria-expanded="false" aria-controls="mainNav" aria-label="Menü öffnen"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18M3 12h18M3 18h18" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg><span id="menuLabel">Termine</span><span class="dot" id="menuDot" hidden></span></button>
   <nav id="mainNav" aria-label="Bereiche">
-    <a href="#training" data-view="training">Termine</a>
+    <a href="#training" data-view="training">Termine<span class="dot" id="termDot" hidden></span></a>
     <a href="#info" data-view="info">Team-Info<span class="dot" id="navDot" hidden></span></a>
     <a href="#spieler" data-view="spieler" class="trainer-only">Spieler</a>
     <a href="#ergebnisse" data-view="ergebnisse" class="trainer-only">Ergebnisse</a>
@@ -152,6 +152,8 @@ body.ro .write{display:none!important}
 .no-kasse .kasse-only{display:none!important}
 body:not(.is-dev) .dev-only{display:none!important}
 .pres.due{color:var(--warn)}
+.pitem.absence{border-left:4px solid var(--warn)}
+#newAbsence{margin-top:10px}
 a.pitem.dl{display:block;color:inherit;text-decoration:none}
 a.pitem.dl:hover{border-color:var(--gold)}
 .dlbtn{font:700 13px var(--body);color:var(--on-gold);background:var(--gold);border-radius:999px;padding:6px 14px;flex:none}
@@ -221,6 +223,19 @@ td input.email{width:220px}
   <section data-section="training" class="panel">
     <h2>Termine <small id="tCount"></small></h2>
     <div id="tList" class="tlist"></div>
+    <details class="new" id="newAbsence">
+      <summary>Krank oder im Urlaub? Abwesenheit melden</summary>
+      <div class="form">
+        <label for="abPlayer" class="trainer-only">Spieler<select id="abPlayer"></select></label>
+        <label for="abFrom">Von<input id="abFrom" type="date"></label>
+        <label for="abTo">Bis (einschließlich)<input id="abTo" type="date"></label>
+        <label for="abReason">Grund<select id="abReason"><option value="krank">Krank / verletzt</option><option value="urlaub">Urlaub</option><option value="sonstiges">Sonstiges</option></select></label>
+        <label for="abNote">Notiz (optional, nur Trainer sehen sie)<input id="abNote" maxlength="200" placeholder="z. B. Knie, Arbeit"></label>
+      </div>
+      <div class="row" style="margin-top:10px"><button id="btnAbsence" class="primary">Abwesenheit melden</button></div>
+      <p class="muted">Für alle Termine in diesem Zeitraum bist du automatisch abgemeldet – auch für Termine, die erst später eingetragen werden. Termine, deren Absagefrist (24 h) schon vorbei ist, muss ein Trainer bestätigen.</p>
+    </details>
+    <div id="absList" class="plist"></div>
     <details class="new trainer-only" id="newTraining">
       <summary>Neuen Termin anlegen</summary>
       <div class="form">
@@ -465,7 +480,7 @@ const POS = {G:"Tor", D:"Verteidigung", O:"Sturm"};
 const POS_SHORT = {G:"T", D:"V", O:"S"};
 const SCALE = 4;                 // 4 points of average difference = 10:1 expected odds
 const DEADLINE_MS = 24*3600e3;   // players can answer up to 24 h before the start (enforced in firestore.rules)
-const S = {user:null, authKnown:false, denied:false, role:null, me:null, players:{}, roster:{}, trainings:[], allTrainings:[], past:[], sel:null, drafts:{}, members:{}, news:[], kasse:null, billing:{}, fines:[], ledger:[],
+const S = {user:null, authKnown:false, denied:false, role:null, me:null, players:{}, roster:{}, trainings:[], allTrainings:[], past:[], sel:null, drafts:{}, members:{}, news:[], kasse:null, billing:{}, fines:[], ledger:[], absences:[],
            loaded:{players:false, roster:false, trainings:false}, sort:{key:"name",dir:1}, statSort:{key:"rate",dir:-1}};
 let pendingRender = false;
 
@@ -537,7 +552,7 @@ async function initStore(){
 }
 
 function resetData(){
-  S.denied=false; S.role=null; S.me=null; S.players={}; S.roster={}; S.trainings=[]; S.allTrainings=[]; S.past=[]; S.sel=null; S.drafts={}; S.members={}; S.news=[]; S.kasse=null; S.billing={}; S.fines=[]; S.ledger=[];
+  S.denied=false; S.role=null; S.me=null; S.players={}; S.roster={}; S.trainings=[]; S.allTrainings=[]; S.past=[]; S.sel=null; S.drafts={}; S.members={}; S.news=[]; S.kasse=null; S.billing={}; S.fines=[]; S.ledger=[]; S.absences=[];
   S.loaded={players:false, roster:false, trainings:false};
   document.body.classList.remove("is-player", "no-kasse", "is-dev");
 }
@@ -585,6 +600,11 @@ function watchData(){
   roleUnsubs.push(F.onSnapshot(F.doc(db, "kasse", "settings"), d => { S.kasse = d.exists() ? d.data() : null; render(); }, kasseFail));
   if (isKasse()) roleUnsubs.push(F.onSnapshot(F.collection(db, "billing"), s => { S.billing = {}; s.forEach(d => S.billing[d.id] = d.data()); render(); }, kasseFail));
   else if (S.me?.playerId) roleUnsubs.push(F.onSnapshot(F.doc(db, "billing", S.me.playerId), d => { S.billing = d.exists() ? {[d.id]: d.data()} : {}; render(); }, kasseFail));
+  // Absences (sick, holiday): everybody needs them to compute who is coming
+  roleUnsubs.push(F.onSnapshot(F.collection(db, "absences"), s => {
+    S.absences = s.docs.map(d => { const v = d.data(); return {id: d.id, ...v, at: v.at?.toMillis?.() ?? Date.now()}; });
+    render();
+  }, e => status("Abwesenheiten konnten nicht geladen werden (" + (e?.code || "Fehler") + ").", true)));
   // Cash book (expenses and corrections) for trainers and the cashier
   if (isKasse()) roleUnsubs.push(F.onSnapshot(F.collection(db, "ledger"), s => {
     S.ledger = s.docs.map(d => { const v = d.data(); return {id: d.id, ...v, at: v.at?.toMillis?.() ?? 0, confirmedAt: v.confirmedAt?.toMillis?.() ?? 0}; });
@@ -773,6 +793,13 @@ const api = {
     fire(fb.F.updateDoc(fb.F.doc(fb.db, "ledger", id), {confirmedBy: S.me.email, confirmedByName: by, confirmedAt: fb.F.Timestamp.now()}));
   },
   delLedger(id){ fire(fb.F.deleteDoc(fb.F.doc(fb.db, "ledger", id))); },
+  addAbsence(pid, from, to, reason, note){
+    const byName = (S.me?.playerId && S.roster[S.me.playerId]?.name) || S.me?.name || "Trainer";
+    fire(fb.F.addDoc(fb.F.collection(fb.db, "absences"), {pid, from, to, reason, ...(note ? {note} : {}), by: S.me.email, byName, byTrainer: isTrainer(), at: fb.F.serverTimestamp()}));
+  },
+  endAbsence(a, to){ fire(fb.F.updateDoc(fb.F.doc(fb.db, "absences", a.id), {to})); },
+  delAbsence(id){ fire(fb.F.deleteDoc(fb.F.doc(fb.db, "absences", id))); },
+  confirmAbsence(a, tid){ fire(fb.F.updateDoc(fb.F.doc(fb.db, "absences", a.id), new fb.F.FieldPath("confirmed", tid), true)); },
   setTariffs(season, tf){ fire(fb.F.setDoc(fb.F.doc(fb.db, "kasse", "settings"), {seasons: {[season]: tf}}, {merge: true})); },
   setCashier(pid, email, on){ fire(fb.F.setDoc(mRef(email), {name: S.players[pid]?.name || "", role: on ? "cashier" : "player", playerId: pid})); },
   answer(t, pid, val){ fire(fb.F.updateDoc(tRef(t.id), new fb.F.FieldPath("responses", pid), val)); },
@@ -811,7 +838,22 @@ async function sendLink(){
 
 /* ---------- attendance ---------- */
 // Players with access are in by default and drop out by answering "out"; guests are out until a trainer adds them.
+/* ---------- absences ---------- */
+const ABS_REASON = {krank: "krank", urlaub: "Urlaub", sonstiges: "abwesend"};
+const dayStart = ms => { const d = new Date(ms); d.setHours(0, 0, 0, 0); return d.getTime(); };
+const dayEnd = ms => { const d = new Date(ms); d.setHours(23, 59, 59, 999); return d.getTime(); };
+const absenceFor = (t, pid) => S.absences.find(a => a.pid === pid && t.start >= a.from && t.start <= a.to) || null;
+// "out": the absence applies; "pending": reported after the answer deadline and not yet confirmed by a trainer
+function absenceState(t, pid){
+  const a = absenceFor(t, pid); if (!a) return null;
+  return a.byTrainer || a.at < deadlineOf(t) || a.confirmed?.[t.id] ? "out" : "pending";
+}
+// Late reports waiting for a trainer, as [appointment, absence] pairs (only appointments not over yet)
+const pendingAbsences = () => S.trainings.filter(t => !t.cancelled).flatMap(t =>
+  Object.keys(S.roster).filter(pid => absenceState(t, pid) === "pending").map(pid => [t, absenceFor(t, pid)]));
+
 function answerOf(t, pid){
+  if (absenceState(t, pid) === "out") return "out";
   const r = t.responses[pid]; if (r === "in" || r === "out") return r;
   const ro = S.roster[pid]; return ro && ro.access && ro.active ? "in" : "out";
 }
@@ -884,7 +926,7 @@ function render(){
   document.querySelectorAll("nav a").forEach(a => { if (a.dataset.view===v) a.setAttribute("aria-current","page"); else a.removeAttribute("aria-current"); });
   document.querySelectorAll("[data-section]").forEach(s => s.hidden = s.dataset.section !== v);
   if (v==="denied") $("#deniedEmail").textContent = S.user?.email || "";
-  if (v==="training") { renderTrainings(); renderDetail(); if (isTrainer()) renderPresent(); renderTeams(); renderLines(); }
+  if (v==="training") { renderTrainings(); renderAbsences(); renderDetail(); if (isTrainer()) renderPresent(); renderTeams(); renderLines(); }
   if (v==="spieler") { if ($("#playerTable").contains(document.activeElement)) pendingRender = true; else renderPlayers(); }
   if (v==="statistik") renderStats();
   if (v==="ergebnisse") renderResults();
@@ -904,12 +946,36 @@ function renderTrainings(){
   box.innerHTML = S.trainings.map(t => {
     let pill;
     if (t.cancelled) pill = `<span class="pill cancel">fällt aus</span>`;
+    else if (!isTrainer() && my && absenceState(t, my)) pill = `<span class="pill">${absenceState(t, my) === "out" ? "abgemeldet" : "wartet"}</span>`;
     else if (!isTrainer() && my) pill = answerOf(t, my) === "in" ? `<span class="pill in">dabei</span>` : `<span class="pill">abgesagt</span>`;
     else pill = `<span class="pill in">${attendees(t).length} dabei</span>`;
     return `<button class="tcard" data-sel="${esc(t.id)}" aria-current="${t.id===S.sel}">
       <span class="tdate"><small>${dDay(t.start).slice(0,2)}</small>${dDay(t.start).slice(3)}</span>
       <span class="tinfo"><b>${tRange(t)} Uhr${t.place ? " · "+esc(t.place) : ""}</b><span>${kindOf(t)}${t.note ? " · "+esc(t.note) : ""}</span></span>
       ${pill}</button>`;
+  }).join("");
+}
+
+function renderAbsences(){
+  const sel = $("#abPlayer");
+  if (isTrainer()) {
+    const keep = sel.value;
+    sel.innerHTML = Object.values(S.roster).filter(r => r.active).sort(byName).map(r => `<option value="${esc(r.id)}">${esc(r.name)}</option>`).join("");
+    sel.value = keep || S.me?.playerId || sel.value;
+  }
+  const today0 = dayStart(Date.now()), iso = ms => new Date(ms - new Date().getTimezoneOffset() * 6e4).toISOString().slice(0, 10);
+  if (!$("#abFrom").value) $("#abFrom").value = iso(Date.now());
+  if (!$("#abTo").value) $("#abTo").value = iso(Date.now());
+  const my = S.me?.playerId;
+  const list = S.absences.filter(a => a.to >= today0 && (isTrainer() || a.pid === my)).sort((a, b) => a.from - b.from);
+  $("#absList").innerHTML = list.map(a => {
+    const name = S.roster[a.pid]?.name || "Spieler", mineA = a.pid === my;
+    const canEnd = mineA || isTrainer();
+    return `<div class="pitem absence"><div class="phead">
+      <div class="pinfo"><b>${isTrainer() || !mineA ? esc(name) + " · " : "Du bist "}${ABS_REASON[a.reason] || "abwesend"}</b>
+        <span>${dDay(a.from)} bis ${dDay(a.to)}${isTrainer() && a.note ? " · " + esc(a.note) : ""}${a.pid !== my || isTrainer() ? ` · gemeldet von ${esc(a.byName || "")}` : ""}</span></div>
+      ${canEnd ? `<button data-abend="${esc(a.id)}">${a.from > today0 ? "Löschen" : "Wieder da"}</button>` : ""}
+    </div></div>`;
   }).join("");
 }
 
@@ -922,7 +988,15 @@ function renderDetail(){
   const late = Date.now() >= deadlineOf(t);
   let mine = "";
   const my = S.me?.playerId;
-  if (my && S.roster[my] && !t.cancelled) {
+  const ownAbs = my && absenceFor(t, my), ownState = my && absenceState(t, my);
+  if (my && S.roster[my] && !t.cancelled && ownAbs) {
+    mine = `<div class="mystatus">
+      <span class="big out">${ownState === "out" ? "Du bist abgemeldet" : "Abmeldung wartet"}</span>
+      <span class="muted">${ownState === "out" ? `${ABS_REASON[ownAbs.reason] || "abwesend"} bis ${dDay(ownAbs.to)} – wieder fit? Unter „Abwesenheit melden“ die Abwesenheit beenden.`
+        : "Du hast dich nach der Absagefrist abgemeldet – ein Trainer muss das noch bestätigen."}</span>
+    </div>`;
+  }
+  else if (my && S.roster[my] && !t.cancelled) {
     const a = answerOf(t, my);
     mine = `<div class="mystatus">
       <span class="big ${a}">${a==="in" ? "Du bist dabei" : "Du hast abgesagt"}</span>
@@ -935,7 +1009,9 @@ function renderDetail(){
     ${t.note ? `<p>${esc(t.note)}</p>` : ""}
     ${t.cancelled ? `<p class="note warn">Dieser Termin fällt aus.</p>` : mine}
     ${t.cancelled ? "" : `<div class="names"><b>Dabei (${ins.length}):</b> Tor ${cnt("G")} · Verteidigung ${cnt("D")} · Sturm ${cnt("O")}<br>${ins.map(r=>esc(r.name)).join(", ") || "–"}</div>
-    <div class="names"><b>Abgesagt (${outs.length}):</b> ${outs.map(r=>esc(r.name)).join(", ") || "–"}</div>
+    <div class="names"><b>Abgesagt (${outs.length}):</b> ${outs.map(r => { const ab = absenceState(t, r.id) === "out" && absenceFor(t, r.id); return esc(r.name) + (ab ? ` <small class="muted">(${isTrainer() ? ABS_REASON[ab.reason] || "abwesend" : "abwesend"})</small>` : ""); }).join(", ") || "–"}</div>
+    ${isTrainer() ? Object.keys(S.roster).filter(pid => absenceState(t, pid) === "pending").map(pid => { const ab = absenceFor(t, pid);
+      return `<p class="note warn"><b>${esc(S.roster[pid].name)}</b> hat sich nach der Frist abgemeldet (${ABS_REASON[ab.reason] || "abwesend"}${ab.note ? ": " + esc(ab.note) : ""}). <button class="primary" data-abconfirm="${esc(ab.id)}" data-tid="${esc(t.id)}">Abmeldung bestätigen</button></p>`; }).join("") : ""}
     <div class="row cal"><span class="muted">In meinen Kalender:</span>
       <a class="btn" href="${esc(googleCalUrl(t))}" target="_blank" rel="noopener">Google Kalender</a>
       <button data-ics="${esc(t.id)}">Kalenderdatei (iPhone, Outlook)</button>
@@ -1543,8 +1619,10 @@ function renderUnread(){
   const n = view() === "info" ? 0 : unreadNews();
   // Cash book entries waiting for my confirmation
   const k = isKasse() ? S.ledger.filter(canConfirm).length : 0;
+  const ab = isTrainer() ? pendingAbsences().length : 0;
   const show = (el, c) => { el.hidden = !c; el.textContent = c > 9 ? "9+" : String(c); };
-  show($("#navDot"), n); show($("#kasseDot"), k); show($("#menuDot"), n + k);
+  show($("#termDot"), ab);
+  show($("#navDot"), n); show($("#kasseDot"), k); show($("#menuDot"), n + k + ab);
 }
 function renderNews(){
   const seen = seenAt(), news = visibleNews();
@@ -1661,7 +1739,30 @@ document.addEventListener("click", e => {
       if (Date.now() >= deadlineOf(tr)) { status("Die Absagefrist ist abgelaufen. Bitte direkt beim Trainer melden.", true); return; }
       api.answer(tr, S.me.playerId, t.dataset.answer); status(t.dataset.answer === "out" ? "Abgesagt." : "Du bist wieder dabei.");
     }
+    else if (t.dataset.toggle && tr && absenceState(tr, t.dataset.toggle) === "out") status(`${S.roster[t.dataset.toggle]?.name || "Der Spieler"} ist für diesen Termin abgemeldet. Zum Ändern die Abwesenheit oben unter „Abwesenheit melden“ beenden.`, true);
     else if (t.dataset.toggle && tr) api.answer(tr, t.dataset.toggle, answerOf(tr, t.dataset.toggle) === "in" ? "out" : "in");
+    else if (t.id === "btnAbsence") {
+      const pid = isTrainer() ? $("#abPlayer").value : S.me?.playerId;
+      if (!pid || !S.roster[pid]) { status("Dein Zugang ist mit keinem Spieler verknüpft – bitte beim Trainer melden.", true); return; }
+      const f = $("#abFrom").value, to = $("#abTo").value;
+      if (!f || !to) { status("Bitte Von und Bis wählen.", true); return; }
+      const [y1, m1, d1] = f.split("-").map(Number), [y2, m2, d2] = to.split("-").map(Number);
+      const from = new Date(y1, m1 - 1, d1).getTime(), until = new Date(y2, m2 - 1, d2, 23, 59, 59, 999).getTime();
+      if (until < from) { status("„Bis“ liegt vor „Von“.", true); return; }
+      if (until - from > 366 * 864e5) { status("Bitte höchstens ein Jahr am Stück eintragen.", true); return; }
+      if (until < Date.now()) { status("Der Zeitraum liegt in der Vergangenheit.", true); return; }
+      api.addAbsence(pid, from, until, $("#abReason").value, $("#abNote").value.trim().slice(0, 200));
+      $("#abNote").value = ""; $("#newAbsence").open = false;
+      const lateOnes = S.trainings.filter(x => !x.cancelled && x.start >= from && x.start <= until && Date.now() >= deadlineOf(x)).length;
+      status(`Abwesenheit eingetragen (${dDay(from)} bis ${dDay(until)}).` + (lateOnes && !isTrainer() ? ` ${lateOnes} Termin${lateOnes > 1 ? "e" : ""} nach der Absagefrist – ein Trainer bestätigt das noch.` : ""));
+    }
+    else if (t.dataset.abend) {
+      const a = S.absences.find(x => x.id === t.dataset.abend); if (!a) return;
+      const today0 = dayStart(Date.now());
+      if (a.from >= today0) confirmBtn(t, () => { api.delAbsence(a.id); status("Abwesenheit gelöscht."); });
+      else confirmBtn(t, () => { api.endAbsence(a, today0 - 1); status("Willkommen zurück! Ab heute bist du wieder automatisch dabei."); });
+    }
+    else if (t.dataset.abconfirm) { const a = S.absences.find(x => x.id === t.dataset.abconfirm); if (a) { api.confirmAbsence(a, t.dataset.tid); status("Abmeldung bestätigt."); } }
     else if ((t.id==="btnGen" || t.id==="btnGen2") && tr) generate(tr);
     else if (t.dataset.move && tr && draftOf(tr)) {
       const tm = draftOf(tr), id = t.dataset.move, inA = tm.A.includes(id);

@@ -226,6 +226,35 @@ service cloud.firestore {
         && (resource.data.by == myEmail() || isTrainer());
     }
 
+    // Absences (sick, holiday): a player reports the own, a trainer anybody's. The time of the
+    // report comes from the server, so nobody can backdate a report to get in before the deadline.
+    // Reports after a deadline are confirmed per appointment by a trainer (map "confirmed").
+    match /absences/{id} {
+      allow read: if isMember();
+      allow create: if isMember()
+        && request.resource.data.keys().hasOnly(['pid', 'from', 'to', 'reason', 'note', 'by', 'byName', 'byTrainer', 'at'])
+        && request.resource.data.pid is string
+        && (request.resource.data.pid == myPlayerId() || isTrainer())
+        && request.resource.data.from is number && request.resource.data.to is number
+        && request.resource.data.to >= request.resource.data.from
+        && request.resource.data.to - request.resource.data.from <= 31708800000
+        && request.resource.data.reason in ['krank', 'urlaub', 'sonstiges']
+        && (!('note' in request.resource.data) || (request.resource.data.note is string && request.resource.data.note.size() <= 200))
+        && request.resource.data.by == myEmail()
+        && request.resource.data.byName is string
+        && request.resource.data.byTrainer == isTrainer()
+        && request.resource.data.at == request.time;
+      allow update: if
+        // a trainer confirms late reports
+        (isTrainer() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['confirmed'])
+          && request.resource.data.confirmed is map)
+        // the author ends the absence early (only shorter, never before its start)
+        || (signedIn() && resource.data.by == myEmail()
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['to'])
+          && request.resource.data.to >= resource.data.from && request.resource.data.to <= resource.data.to);
+      allow delete: if isTrainer() || (signedIn() && resource.data.by == myEmail());
+    }
+
     // Everything else stays closed.
     match /{document=**} {
       allow read, write: if false;
