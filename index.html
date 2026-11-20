@@ -502,7 +502,7 @@ td input.email{width:220px}
 
   <section data-section="konto" class="panel dev-only">
     <h2>Datensicherung</h2>
-    <p class="muted">Die Daten liegen in der Mannschafts-Datenbank. Eine Sicherung als Datei schützt zusätzlich vor versehentlichem Löschen. Beim Laden einer Sicherung werden die Spieler ersetzt, die Termine bleiben. Eine Termin-Datei legt dagegen nur neue künftige Termine an (schon vorhandene werden übersprungen) und kündigt sie mit einer einzigen Team-Info an.</p>
+    <p class="muted">Die Daten liegen in der Mannschafts-Datenbank. Eine Sicherung als Datei schützt zusätzlich vor versehentlichem Löschen. Beim Laden einer Sicherung werden die Spieler ersetzt, die Termine bleiben. Eine Termin-Datei legt dagegen nur neue künftige Termine an (schon vorhandene werden übersprungen) und kündigt sie mit einer einzigen Team-Info an. Eine Beitrags-Datei stellt die genannten Spieler auf Jahresbeitrag und hakt den Beitrag der Saison mit dem Zahlungsdatum ab.</p>
     <div class="row">
       <button id="btnExport" class="primary">Daten sichern (.json)</button>
       <label class="btn" for="importFile">Sicherung oder Termine laden …</label>
@@ -2241,6 +2241,15 @@ document.getElementById("importFile").addEventListener("change", async e => {
       b.textContent = `Termine anlegen: ${list.length} (${dDay(list[0].start)} bis ${dDay(list[list.length - 1].start)})`;
       b.hidden = false; return;
     }
+    // Paid annual fees: {kind: "beitraege", season: 2026, payments: [{name, date: "2026-11-15"}]}
+    if (d && d.kind === "beitraege" && Array.isArray(d.payments)) {
+      const r = feesToBook(d);
+      if (r.miss.length) status(`Nicht gefunden: ${r.miss.join(", ")} – bitte in der Kasse von Hand abhaken.`, true);
+      if (!r.list.length) { if (!r.miss.length) status(`Alle Beiträge ${seasonLabel(r.season)} aus der Datei sind schon abgehakt.`); return; }
+      pendingImport = {fees: r};
+      b.textContent = `Beiträge eintragen: ${r.list.length} Spieler, Jahresbeitrag ${seasonLabel(r.season)}${r.done ? ` (${r.done} schon abgehakt)` : ""}`;
+      b.hidden = false; return;
+    }
     if (!d || typeof d.players !== "object" || Array.isArray(d.players)) throw new Error("format");
     pendingImport = d;
     b.textContent = `Sicherung laden: ${Object.keys(d.players).length} Spieler – ersetzt die aktuellen Spieler`;
@@ -2248,6 +2257,29 @@ document.getElementById("importFile").addEventListener("change", async e => {
   } catch { status("Diese Datei ist keine gültige Sicherung des Trainingsplaners.", true); }
 });
 // Valid future appointments from an import file, without those already in the plan (same start and kind)
+// Names as in the bank or Spieler+ list: compared without case, emojis and punctuation
+const normName = s => String(s || "").toLowerCase().normalize("NFKD").replace(/[^\p{L}\p{N}]/gu, "");
+function matchPlayer(name){
+  const n = normName(name); if (!n) return null;
+  const ps = Object.values(S.players);
+  const exact = ps.filter(p => normName(p.name) === n);
+  if (exact.length === 1) return exact[0];
+  const part = ps.filter(p => { const q = normName(p.name); return q.length >= 3 && (n.includes(q) || q.includes(n)); });
+  return part.length === 1 ? part[0] : null;
+}
+function feesToBook(d){
+  const season = Number.isInteger(d.season) ? d.season : seasonOf(Date.now()), key = "y:" + season;
+  const list = [], miss = []; let done = 0;
+  for (const x of d.payments) {
+    const p = matchPlayer(x.name);
+    if (!p) { miss.push(String(x.name || "?")); continue; }
+    if (S.billing[p.id]?.paid?.[key] && S.billing[p.id]?.plan === "annual") { done++; continue; }
+    const [y, m, dd] = String(x.date || "").split("-").map(Number);
+    const at = y && m && dd ? new Date(y, m - 1, dd, 12).getTime() : Date.now();
+    if (!list.some(e => e.pid === p.id)) list.push({pid: p.id, name: p.name, at});
+  }
+  return {season, key, list, miss, done};
+}
 function termineToAdd(raw){
   const now = Date.now();
   return raw.map(x => ({start: new Date(x.start).getTime(), kind: x.kind === "game" ? "game" : "training",
@@ -2266,6 +2298,15 @@ document.getElementById("btnImportConfirm").addEventListener("click", e => {
       const nG = list.filter(x => x.kind === "game").length, nT = list.length - nG;
       api.addNews(`${list.length} neue Termine`, `Eingetragen bis ${dDay(list[list.length - 1].start)}: ${nT} ${nT === 1 ? "Training" : "Trainings"}${nG ? `, ${nG} ${nG === 1 ? "Spiel" : "Spiele"}` : ""}. Du bist automatisch dabei – wer nicht kann, sagt bis 24 Stunden vorher ab.`);
       pendingImport = null; b.hidden = true; status(`${list.length} Termine angelegt.`);
+    });
+  }
+  if (pendingImport?.fees) {
+    const r = pendingImport.fees;
+    return confirmBtn(b, () => {
+      // Annual plan and the season's fee ticked off with the payment date
+      r.list.forEach(x => fire(fb.F.setDoc(fb.F.doc(fb.db, "billing", x.pid), {plan: "annual", paid: {[r.key]: x.at}}, {merge: true})));
+      pendingImport = null; b.hidden = true;
+      status(`Jahresbeitrag ${seasonLabel(r.season)} für ${r.list.length} Spieler eingetragen: ${r.list.map(x => x.name).join(", ")}.`);
     });
   }
   confirmBtn(b, () => { api.replacePlayers(pendingImport.players); pendingImport = null; b.hidden = true; status("Sicherung geladen."); });
