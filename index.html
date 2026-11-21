@@ -158,6 +158,20 @@ body:not(.is-dev) .dev-only{display:none!important}
 a.pitem.dl{display:block;color:inherit;text-decoration:none}
 a.pitem.dl:hover{border-color:var(--gold)}
 .dlbtn{font:700 13px var(--body);color:var(--on-gold);background:var(--gold);border-radius:999px;padding:6px 14px;flex:none}
+.kmet{display:flex;justify-content:space-between;align-items:baseline;background:var(--surface-2);border:1px solid var(--line);border-radius:10px;padding:10px 14px}
+.kmet span{font-weight:600}
+.kmet b{font:700 24px var(--display);font-variant-numeric:tabular-nums}
+.kmet.main{border-color:var(--gold)}.kmet.main b{color:var(--gold)}
+.ktabs{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.ktabs button{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:12px 14px;font-size:16px;font-weight:600;text-align:left}
+.ktabs button[aria-pressed="true"]{background:var(--gold);border-color:var(--gold);color:#111}
+.ktabs .kb{font:600 12px var(--body);padding:1px 8px;border-radius:999px;background:var(--surface-2);color:var(--warn);border:1px solid var(--warn)}
+.ktabs button[aria-pressed="true"] .kb{background:#111;color:var(--gold);border-color:#111}
+.krow{display:grid;grid-template-columns:1fr auto auto;gap:12px;align-items:center;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:var(--surface-2);text-align:left;width:100%;font:inherit;color:inherit;cursor:pointer}
+.krow span small{display:block;color:var(--muted);font-size:13px;font-weight:400}
+.krow .chev{color:var(--muted)}
+#newExpense > summary, #newCorrection > summary{display:none}
+#newExpense:not([open]), #newCorrection:not([open]){display:none}
 .saldo{display:flex;justify-content:space-between;align-items:baseline;background:var(--navy-2, #10294d);border:1px solid var(--gold);border-radius:10px;padding:12px 14px}
 .saldo span{font-weight:600}
 .saldo b{font:700 26px var(--display);color:var(--gold);font-variant-numeric:tabular-nums}
@@ -412,9 +426,17 @@ td input.email{width:220px}
     <div id="newsList" class="news"></div>
   </section>
 
-  <section data-section="kasse" class="panel">
-    <h2>Kassenstand</h2>
-    <div id="saldoBox"></div>
+  <section data-section="kasse" class="panel" id="kasseTop">
+    <h2>Kasse</h2>
+    <div id="kMetrics" style="display:grid;gap:8px"></div>
+    <div class="ktabs" id="kTabs" role="group" aria-label="Bereich der Kasse"></div>
+  </section>
+
+  <section data-section="kasse" class="panel" id="kPlayer" hidden></section>
+
+  <section data-section="kasse" class="panel" id="kLedger">
+    <h2>Kassenbuch</h2>
+    <div class="actions"><button id="btnExpOpen">− Ausgabe eintragen</button><button id="btnCorOpen">± Korrektur</button></div>
     <div class="row" style="margin-top:8px">
       <details class="new" id="newExpense" style="flex:1 1 100%">
         <summary>Ausgabe eintragen</summary>
@@ -434,15 +456,16 @@ td input.email{width:220px}
         <div class="row" style="margin-top:10px"><button id="btnCorrection" class="primary">Korrektur eintragen</button></div>
       </details>
     </div>
-    <p class="muted">Jede Ausgabe und Korrektur muss ein <b>zweiter</b> Trainer oder Kassier bestätigen (Vier-Augen-Prinzip). Bestätigte Einträge lassen sich nicht mehr ändern – ein Fehler wird mit einer Korrektur ausgeglichen.</p>
+    <div id="saldoBox"></div>
+    <details class="hint"><summary>ⓘ Vier-Augen-Prinzip</summary><p class="muted">Jede Ausgabe und Korrektur muss ein <b>zweiter</b> Trainer oder Kassier bestätigen. Bestätigte Einträge lassen sich nicht mehr ändern – ein Fehler wird mit einer Korrektur ausgeglichen.</p></details>
     <div class="row"><label class="inline" for="ledgerFilter">Anzeigen
       <select id="ledgerFilter"><option value="recent" selected>Letzte 20 Einträge</option><option value="pending">Nur unbestätigte</option><option value="all">Alle</option></select></label>
       <button id="btnExpLedger">Kassenbuch exportieren</button></div>
     <div id="ledgerList" class="plist"></div>
   </section>
 
-  <section data-section="kasse" class="panel">
-    <h2>Kasse <small id="kasseSum"></small></h2>
+  <section data-section="kasse" class="panel" id="kPlayers">
+    <h2>Spieler <small id="kasseSum"></small></h2>
     <div class="row">
       <label class="inline" for="kasseFilter">Anzeigen
         <select id="kasseFilter">
@@ -450,15 +473,15 @@ td input.email{width:220px}
           <option value="all">Alle Spieler</option>
         </select></label>
     </div>
+    <details class="hint"><summary>ⓘ So funktioniert's</summary><p class="muted">Spieler antippen: Beitragsart festlegen und die Posten abhaken, die bezahlt sind. Gäste ohne Zugang sind auch dabei. Nur für Trainer und Kassier sichtbar.</p></details>
+    <div id="kasseList" class="plist"></div>
     <div class="row">
       <button id="btnExpKasse">Übersicht exportieren</button>
       <button id="btnExpPosten">Alle Posten exportieren</button>
     </div>
-    <p class="muted">Beitragsart je Spieler festlegen, unter „Posten“ abhaken, was bezahlt ist. Gäste ohne Zugang sind auch dabei. Nur für Trainer und Kassier sichtbar.</p>
-    <div id="kasseList" class="plist"></div>
   </section>
 
-  <section data-section="kasse" class="panel">
+  <section data-section="kasse" class="panel" id="kFines">
     <h2>Strafen <small id="fineCount"></small></h2>
     <details class="new trainer-only" id="newFine">
       <summary>Strafe vergeben</summary>
@@ -468,18 +491,18 @@ td input.email{width:220px}
         <label for="fnAmount">Betrag (€)<input id="fnAmount" type="number" min="0.5" max="1000" step="0.5" placeholder="5"></label>
       </div>
       <div class="row" style="margin-top:10px"><button id="btnFine" class="primary">Strafe vergeben</button></div>
-      <p class="muted">Die Strafe erscheint beim Spieler unter Konto als offener Posten und wird hier unter „Posten“ abgehakt, sobald sie bezahlt ist.</p>
+      <p class="muted">Die Strafe erscheint beim Spieler unter Konto als offener Posten und wird im Reiter „Spieler“ beim Spieler abgehakt, sobald sie bezahlt ist.</p>
     </details>
     <div id="fineList" class="plist"></div>
   </section>
 
-  <section data-section="kasse" class="panel">
+  <section data-section="kasse" class="panel" id="kGames">
     <h2>Zusatzkosten bei Spielen</h2>
     <p class="muted">Betrag pro Spieler, den jeder zahlt, der beim Spiel dabei war (z. B. Eis, Schiri). Leer = keine Zusatzkosten.</p>
     <div id="gameCosts" class="plist"></div>
   </section>
 
-  <section data-section="kasse" class="panel">
+  <section data-section="kasse" class="panel" id="kTariffs">
     <h2>Tarife</h2>
     <div class="row"><label class="inline" for="tariffSeason">Für <select id="tariffSeason"></select></label></div>
     <div id="tariffBox"></div>
@@ -1126,7 +1149,7 @@ function view(){
   if (h === "spieler" && isTrainer()) return "spieler";
   if (h === "statistik" && isTrainer()) return "statistik";
   if (h === "ergebnisse" && isTrainer()) return "ergebnisse";
-  if (h === "kasse" && isKasse()) return "kasse";
+  if ((h === "kasse" || h.startsWith("kasse/")) && isKasse()) return "kasse";
   if (h === "info") return "info";
   if (h === "downloads") return "downloads";
   if (h === "konto") return "konto";
@@ -1754,13 +1777,11 @@ const sign = n => (n > 0 ? "+" : n < 0 ? "−" : "") + euro(Math.abs(n));
 function renderLedger(){
   if (!$("#exDate").value) $("#exDate").value = new Date(Date.now() - new Date().getTimezoneOffset() * 6e4).toISOString().slice(0, 10);
   const k = kasseSaldo();
-  $("#saldoBox").innerHTML = `<div class="saldo"><span>Kassenstand</span><b>${euro(k.total)}</b></div>
-    <div class="saldo-rows">
+  $("#saldoBox").innerHTML = `<div class="saldo-rows">
       <div><span>Einnahmen (bezahlte Posten)</span><span>${sign(k.income)}</span></div>
       <div><span>Ausgaben</span><span>${sign(-k.expenses)}</span></div>
       <div><span>Korrekturen</span><span>${sign(k.corrections)}</span></div>
-    </div>
-    ${k.nPending ? `<p class="note warn">${k.nPending} ${k.nPending === 1 ? "Eintrag wartet" : "Einträge warten"} auf Bestätigung (${sign(k.pending)}). Bestätigen kann nur, wer ihn nicht eingetragen hat.</p>` : ""}`;
+    </div>`;
   const mode = $("#ledgerFilter").value;
   let list = S.ledger.slice().sort((a, b) => (b.date || b.at) - (a.date || a.at) || b.at - a.at);
   if (mode === "pending") list = list.filter(e => !e.confirmedBy);
@@ -1782,30 +1803,43 @@ function ledgerRows(){
       [dateDe(e.date || e.at), e.type === "expense" ? "Ausgabe" : "Korrektur", e.text || "", ledgerDelta(e), e.byName || e.by || "", e.confirmedByName || "", e.confirmedAt ? dateDe(e.confirmedAt) : ""])];
 }
 
+// Kasse: overview with four tabs, or the page of one player ("#kasse/p/<id>")
+const kassePlayerId = () => { const m = /^#kasse\/p\/(.+)$/.exec(location.hash); const id = m ? decodeURIComponent(m[1]) : null; return id && S.roster[id] ? id : null; };
 function renderKasse(){
   renderLedger();
   const start = kasseStart(), onlyOpen = $("#kasseFilter").value === "open";
   const people = Object.values(S.roster).map(r => ({...r, open: openOf(r.id)}))
     .filter(r => r.active || r.open > 0).sort(byName);
-  const total = people.reduce((s, r) => s + r.open, 0);
-  $("#kasseSum").textContent = `offen gesamt ${euro(total)}`;
-  const shown = people.filter(r => !onlyOpen || r.open > 0 || r.id === S.openKasse);
+  const total = people.reduce((s, r) => s + r.open, 0), nOpen = people.filter(r => r.open > 0).length;
+  const kp = kassePlayerId(), tab = S.kTab || "spieler", k = kasseSaldo();
+  const nConfirm = S.ledger.filter(canConfirm).length, nFines = S.fines.filter(fi => !S.billing[fi.pid]?.paid?.["f:" + fi.id]).length;
+  $("#kasseTop").hidden = !!kp; $("#kPlayer").hidden = !kp;
+  $("#kPlayers").hidden = !!kp || tab !== "spieler"; $("#kLedger").hidden = !!kp || tab !== "buch";
+  $("#kFines").hidden = !!kp || tab !== "strafen"; $("#kGames").hidden = !!kp || tab !== "tarife"; $("#kTariffs").hidden = !!kp || tab !== "tarife";
+  $("#kMetrics").innerHTML = `<div class="kmet main"><span>Kassenstand</span><b>${euro(k.total)}</b></div>
+    <div class="kmet"><span>Offen bei Spielern</span><b>${euro(total)}</b></div>
+    ${k.nPending ? `<p class="note warn">${k.nPending} ${k.nPending === 1 ? "Eintrag wartet" : "Einträge warten"} im Kassenbuch auf Bestätigung.</p>` : ""}`;
+  const badge = n => n ? `<span class="kb">${n}</span>` : "";
+  $("#kTabs").innerHTML = [["spieler", "Spieler", nOpen], ["buch", "Kassenbuch", nConfirm], ["strafen", "Strafen", nFines], ["tarife", "Tarife", 0]]
+    .map(([key, label, n]) => `<button data-ktab="${key}" aria-pressed="${tab === key}">${label}${badge(n)}</button>`).join("");
+  $("#kasseSum").textContent = onlyOpen ? `${nOpen} mit offenem Betrag` : `${people.length} Spieler`;
+  const shown = people.filter(r => !onlyOpen || r.open > 0);
   $("#kasseList").innerHTML = !shown.length ? `<div class="empty">${onlyOpen ? "Niemand hat einen offenen Betrag." : "Noch keine Spieler."}</div>`
-    : shown.map(r => {
-      const open = S.openKasse === r.id, all = open ? chargesOf(r.id) : [];
-      return `<div class="pitem">
-        <div class="phead">
-          <div class="pinfo"><b>${nrHTML(S.roster[r.id])}${esc(r.name)}${r.access ? "" : ` <small class="muted">Gast</small>`}</b>
-            <span><select data-plan="${esc(r.id)}" aria-label="Beitragsart ${esc(r.name)}">${Object.entries(PLANS).map(([k, l]) => `<option value="${k}" ${planOf(r.id) === k ? "selected" : ""}>${l}</option>`).join("")}</select></span></div>
-          <div class="pres${r.open > 0 ? " due" : ""}">${euro(r.open)}</div>
-          <button data-kopen="${esc(r.id)}" aria-expanded="${open}">${open ? "Zu" : "Posten"}</button>
-        </div>${open ? `<div class="pedit">${!all.length ? `<span class="muted">Keine Posten seit Start der Kasse.</span>` : all.map(c => `
-          <label class="charge"><input type="checkbox" data-paid="${esc(r.id)}" data-key="${esc(c.key)}" ${isPaid(r.id, c) ? "checked" : ""}>
-            <span>${esc(c.label)}</span><b>${euro(c.amount)}</b></label>`).join("")}
-          ${r.open > 0 ? `<div class="row"><button class="primary" data-payall="${esc(r.id)}">Alles bezahlt (${euro(r.open)})</button></div>` : ""}
-        </div>` : ""}
-      </div>`;
-    }).join("");
+    : shown.map(r => `<button class="krow" data-kplayer="${esc(r.id)}"><span>${nrHTML(S.roster[r.id])}${esc(r.name)}${r.access ? "" : ` <small style="display:inline" class="muted">Gast</small>`}<small>${PLANS[planOf(r.id)]}</small></span>
+        <span class="pres${r.open > 0 ? " due" : ""}">${euro(r.open)}</span><span class="chev" aria-hidden="true">›</span></button>`).join("");
+  // Page of one player: fee plan, charges to tick off, "everything paid"
+  if (kp) {
+    const r = {...S.roster[kp], open: openOf(kp)}, all = chargesOf(kp);
+    $("#kPlayer").innerHTML = `<div class="dhead"><a class="back" href="#kasse">← Kasse</a>
+        <h2>${nrHTML(r)}${esc(r.name)}${r.access ? "" : ` <small>Gast</small>`}</h2></div>
+      <div class="kmet${r.open > 0 ? " main" : ""}"><span>Offen</span><b>${euro(r.open)}</b></div>
+      <label>Beitragsart <select data-plan="${esc(kp)}" aria-label="Beitragsart ${esc(r.name)}">${Object.entries(PLANS).map(([key, l]) => `<option value="${key}" ${planOf(kp) === key ? "selected" : ""}>${l}</option>`).join("")}</select></label>
+      <div class="poshead">Posten</div>
+      <div class="pedit">${!all.length ? `<span class="muted">Keine Posten seit Start der Kasse.</span>` : all.map(c => `
+        <label class="charge"><input type="checkbox" data-paid="${esc(kp)}" data-key="${esc(c.key)}" ${isPaid(kp, c) ? "checked" : ""}>
+          <span>${esc(c.label)}</span><b>${euro(c.amount)}</b></label>`).join("")}</div>
+      ${r.open > 0 ? `<div class="row"><button class="primary" data-payall="${esc(kp)}">Alles bezahlt (${euro(r.open)})</button></div>` : `<p class="note">Alles bezahlt.</p>`}`;
+  }
 
   // Fines: form (trainers) and list, newest first
   const fsel = $("#fnPlayer"), keep = fsel.value;
@@ -2253,7 +2287,12 @@ document.addEventListener("click", e => {
     }
     else if (t.id==="btnLogout" || t.id==="btnLogout2") confirmBtn(t, async () => { await disablePush(true); fb.A.signOut(fb.auth); });
     else if (t.dataset.ics) { const x = S.trainings.find(y => y.id === t.dataset.ics); if (x) downloadIcs(x); }
-    else if (t.dataset.kopen) { S.openKasse = S.openKasse === t.dataset.kopen ? null : t.dataset.kopen; renderKasse(); }
+    else if (t.dataset.kplayer) { location.hash = "#kasse/p/" + encodeURIComponent(t.dataset.kplayer); }
+    else if (t.dataset.ktab) { S.kTab = t.dataset.ktab; renderKasse(); }
+    else if (t.id === "btnExpOpen" || t.id === "btnCorOpen") {
+      const d = $(t.id === "btnExpOpen" ? "#newExpense" : "#newCorrection"), other = $(t.id === "btnExpOpen" ? "#newCorrection" : "#newExpense");
+      d.open = !d.open; other.open = false;
+    }
     else if (t.dataset.payall) { const pid = t.dataset.payall; api.setPaid(pid, openCharges(pid).map(c => c.key), true); status(`${S.roster[pid]?.name || "Spieler"}: alles bezahlt.`); }
     else if (t.id==="btnExpStats") { const rg = $("#statRange").value; downloadCsv(`stars-statistik-${RANGE_NAME[rg] || rg}`, statsRows(rg)); }
     else if (t.id==="btnExpResults") downloadCsv("stars-ergebnisse", resultRows());
@@ -2380,7 +2419,7 @@ document.addEventListener("input", e => {
     S.resDraft = {id: el.dataset.tid, a: q("resa")?.value ?? "", b: q("resb")?.value ?? ""};
   }
 });
-window.addEventListener("hashchange", () => { closePast(); closeMenu(); render(); if (/^#(t\/|training)/.test(location.hash)) window.scrollTo(0, 0); });
+window.addEventListener("hashchange", () => { closePast(); closeMenu(); render(); if (/^#(t\/|training|kasse)/.test(location.hash)) window.scrollTo(0, 0); });
 window.addEventListener("online", render);
 window.addEventListener("offline", render);
 // Re-evaluate deadlines now and then while the app stays open
