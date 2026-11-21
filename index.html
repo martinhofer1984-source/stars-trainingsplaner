@@ -336,6 +336,8 @@ td input.email{width:220px}
       <input id="newRating" type="number" min="1" max="10" step="0.1" value="5" aria-label="Stärke" style="width:80px">
       <button id="btnAdd">Spieler anlegen</button>
     </div>
+    <div class="row" style="margin-top:8px"><button id="btnWaInvite">Neuen Spieler einladen (WhatsApp)</button>
+      <span class="muted">Schickt Link und Anleitung; die E-Mail-Adresse trägst du danach hier beim Spieler ein.</span></div>
     <div class="tablewrap" id="playerTable"></div>
     <p class="muted">Stärke 1–10, nur für Trainer sichtbar. <b>Zugang:</b> Trägst du eine E-Mail-Adresse ein, kann sich der Spieler damit anmelden, Termine sehen und absagen. Ohne Adresse ist er Gast. Inaktive Spieler verschwinden aus den Terminen, „Löschen“ entfernt sie endgültig.</p>
   </section>
@@ -1262,7 +1264,7 @@ function renderTeams(){
     const pub = published(t);
     box.innerHTML = pub
       ? `<div class="teams">${teamHTML("a","Team A",pub.A,false)}${teamHTML("b","Team B",pub.B,false)}</div>
-         <div class="row"><button id="btnCopy">Als Text kopieren</button></div>`
+         <div class="row"><button id="btnCopy">Als Text kopieren</button><button id="btnWaTeams">In WhatsApp teilen</button></div>`
       : `<p class="muted">Die Teams erscheinen hier, sobald der Trainer sie freigegeben hat.</p>`;
     return;
   }
@@ -1286,7 +1288,7 @@ function renderTeams(){
       ${same ? "" : `<button id="btnPublish" class="primary">${pub ? "Änderungen freigeben" : "Teams freigeben"}</button>`}
       ${pub && !same ? `<button id="btnRevert">Zurück zur Freigabe</button>` : ""}
       <button id="btnGen2">Neu mischen</button>
-      <button id="btnCopy">Als Text kopieren</button>
+      <button id="btnCopy">Als Text kopieren</button><button id="btnWaTeams">In WhatsApp teilen</button>
       ${pub ? `<button id="btnUnpublish" class="danger">Freigabe zurückziehen</button>` : ""}
     </div>`;
 }
@@ -1369,7 +1371,7 @@ function renderLines(){
   if (!isTrainer()) {
     const pub = publishedLines(t);
     box.innerHTML = pub
-      ? `${linesBody(pub, Object.keys(pub.slot), false)}<div class="row"><button id="btnLinesCopy">Als Text kopieren</button></div>`
+      ? `${linesBody(pub, Object.keys(pub.slot), false)}<div class="row"><button id="btnLinesCopy">Als Text kopieren</button><button id="btnWaLines">In WhatsApp teilen</button></div>`
       : `<p class="muted">Die Linien erscheinen hier, sobald der Trainer sie freigegeben hat.</p>`;
     return;
   }
@@ -1394,7 +1396,7 @@ function renderLines(){
     <div class="row">
       ${same ? "" : `<button id="btnLinesPublish" class="primary" ${overfull(ln).length ? "disabled" : ""}>${pub ? "Änderungen freigeben" : "Linien freigeben"}</button>`}
       ${pub && !same ? `<button id="btnLinesRevert">Zurück zur Freigabe</button>` : ""}
-      <button id="btnLinesCopy">Als Text kopieren</button>
+      <button id="btnLinesCopy">Als Text kopieren</button><button id="btnWaLines">In WhatsApp teilen</button>
       ${pub ? `<button id="btnLinesUnpublish" class="danger">Freigabe zurückziehen</button>` : ""}
     </div>`;
 }
@@ -1991,6 +1993,16 @@ function renderKonto(){
   $("#roleInfo").textContent = (isDev() ? "Rolle: Entwickler" : isTrainer() ? "Rolle: Trainer" : S.role === "cashier" ? "Rolle: Kassier" : "Rolle: Mitspieler") + (my ? ` · Spieler: ${my}` : "");
 }
 
+// WhatsApp: opens WhatsApp with a prepared text; the sender picks the group or person
+const shareWa = text => window.open("https://wa.me/?text=" + encodeURIComponent(text), "_blank", "noopener");
+const waFooter = `\n\nDetails, Zu- und Absagen in der App: ${APP_URL}`;
+function inviteText(){
+  return `Hallo! Bei den Stars planen wir Trainings und Spiele mit unserer App. So bist du dabei:
+1. Schick mir die E-Mail-Adresse, mit der du dich anmelden willst (z. B. dein Gmail) – ich schalte sie frei.
+2. Dann ${APP_URL} öffnen (Android: in Chrome) und mit dieser Adresse anmelden.
+3. App aufs Handy holen und Benachrichtigungen einschalten – dann verpasst du keinen Termin.
+Anleitung mit Bildern: ${APP_URL}docs/stars-anleitung-spieler.pdf`;
+}
 function teamsText(t, tm){
   const name = id => S.roster[id]?.name || S.players[id]?.name;
   const l = ids => ids.map(id => ({id, n:name(id), r:(S.roster[id]||S.players[id]||{})})).filter(x=>x.n).map(x=>`${nrText(x.r)}${x.n} (${POS_SHORT[x.r.pos]||"S"})`).join(", ");
@@ -2085,6 +2097,19 @@ document.addEventListener("click", e => {
     else if (t.id==="btnLinesUnpublish" && tr) confirmBtn(t, () => { api.unpublishLines(tr); status("Freigabe zurückgezogen. Mitspieler sehen keine Linien mehr."); });
     else if (t.id==="btnRevert" && tr && published(tr)) confirmBtn(t, () => { const p = published(tr); api.setDraft(tr.id, {A: p.A, B: p.B}); status("Änderungen verworfen – wieder die freigegebenen Teams."); });
     else if (t.id==="btnLinesRevert" && tr && publishedLines(tr)) confirmBtn(t, () => { const p = publishedLines(tr); api.setLines(tr.id, {d: p.d, o: p.o, slot: {...p.slot}}); status("Änderungen verworfen – wieder die freigegebenen Linien."); });
+    else if (t.id==="btnWaTeams" && tr) {
+      const pub = published(tr);
+      if (!pub) { status("Erst „Teams freigeben“ – dann sehen die Mitspieler die Teams auch in der App.", true); return; }
+      if (isTrainer() && !sameTeams(pub, draftOf(tr))) status("Hinweis: Geteilt wird die freigegebene Einteilung, nicht die noch nicht freigegebenen Änderungen.", true);
+      shareWa("Stars – " + teamsText(tr, pub) + waFooter);
+    }
+    else if (t.id==="btnWaLines" && tr) {
+      const pub = publishedLines(tr);
+      if (!pub) { status("Erst „Linien freigeben“ – dann sehen die Mitspieler die Linien auch in der App.", true); return; }
+      if (isTrainer() && !sameLines(pub, draftLines(tr))) status("Hinweis: Geteilt werden die freigegebenen Linien, nicht die noch nicht freigegebenen Änderungen.", true);
+      shareWa("Stars – " + linesText(tr, pub) + waFooter);
+    }
+    else if (t.id==="btnWaInvite") shareWa(inviteText());
     else if (t.id==="btnCopy" && tr) { const tm = isTrainer() ? draftOf(tr) : published(tr); if (tm) copy(teamsText(tr, tm), t); }
     else if (t.id==="btnPublish" && tr && draftOf(tr)) { api.publish(tr, draftOf(tr)); status("Teams freigegeben. Alle Mitspieler sehen sie jetzt."); }
     else if (t.id==="btnUnpublish" && tr) confirmBtn(t, () => { api.unpublish(tr); status("Freigabe zurückgezogen. Mitspieler sehen keine Teams mehr."); });
