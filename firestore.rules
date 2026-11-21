@@ -101,7 +101,8 @@ service cloud.firestore {
         || ownAnswer() || ownMaterial();
 
       function validTraining(t) {
-        return t.keys().hasOnly(['start', 'place', 'kind', 'note', 'cancelled', 'responses', 'teams', 'lines', 'duration', 'noshow', 'result', 'bulk', 'createdAt', 'wait', 'material'])
+        return t.keys().hasOnly(['start', 'place', 'kind', 'note', 'cancelled', 'responses', 'teams', 'lines', 'duration', 'noshow', 'result', 'bulk', 'createdAt', 'wait', 'material', 'goalies'])
+          && (!('goalies' in t) || t.goalies is map)
           && (!('wait' in t) || (t.wait is list && t.wait.size() <= 60))
           && (!('material' in t) || t.material == null || (t.material is map
               && t.material.keys().hasOnly(['pid', 'state'])

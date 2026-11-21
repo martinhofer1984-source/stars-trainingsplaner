@@ -14,6 +14,8 @@ const OVER_FALLBACK_MS = 2 * 3600e3;
 const CAP = { game: { field: 15, goal: 1 }, training: { field: 20, goal: 2 } };
 const capOf = t => t.kind === "game" ? CAP.game : CAP.training;
 const slotOf = r => r && r.pos === "G" ? "goal" : "field";
+// Trainings: field players nominated as goalie for this training (map "goalies") count as goalies
+const slotIn = (d, t, pid) => t.kind !== "game" && t.goalies && Number.isFinite(+t.goalies[pid]) ? "goal" : slotOf(d.roster[pid]);
 
 const waitOf = t => Array.isArray(t.wait) ? t.wait : [];
 const deadlineOf = t => t.start - DEADLINE_MS;
@@ -35,7 +37,7 @@ const listed = (d, t) => Object.keys(d.roster).filter(pid => d.roster[pid].activ
 const attendeeIds = (d, t) => listed(d, t).filter(pid => answerOf(d, t, pid) === "in");
 function slotCounts(d, t) {
   const c = { field: 0, goal: 0 };
-  for (const pid of attendeeIds(d, t)) c[slotOf(d.roster[pid])]++;
+  for (const pid of attendeeIds(d, t)) c[slotIn(d, t, pid)]++;
   return c;
 }
 
@@ -49,12 +51,12 @@ function waitUpdate(d, before, t) {
   const was = before ? (before.responses || {}) : null;
   if (was) for (const pid of Object.keys(t.responses || {})) {
     if (t.responses[pid] !== "in" || was[pid] === "in" || wait.includes(pid) || answerOf(d, t, pid) !== "in") continue;
-    const s = slotOf(d.roster[pid]);
+    const s = slotIn(d, t, pid);
     if (c[s] > cap[s]) { wait.push(pid); c[s]--; }
   }
   const promoted = [];
   for (const pid of wait) {
-    const s = slotOf(d.roster[pid]);
+    const s = slotIn(d, t, pid);
     if (c[s] < cap[s]) { c[s]++; promoted.push(pid); }
   }
   wait = wait.filter(pid => !promoted.includes(pid));

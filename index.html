@@ -903,6 +903,7 @@ const api = {
     const F = fb.F;
     fire(F.updateDoc(tRef(t.id), new F.FieldPath("responses", pid), val === "out" ? "out" : "in", "wait", val === "wait" ? F.arrayUnion(pid) : F.arrayRemove(pid)));
   },
+  setGoalie(t, pid, rating){ fire(fb.F.updateDoc(tRef(t.id), new fb.F.FieldPath("goalies", pid), rating === null ? fb.F.deleteField() : rating)); },
   askMaterial(t, pid){ api.updTraining(t.id, {material: {pid, state: "asked"}}); },
   answerMaterial(t, yes){ api.updTraining(t.id, {material: {pid: S.me.playerId, state: yes ? "yes" : "no"}}); },
   addPoll(title, text, options){
@@ -1000,16 +1001,21 @@ const CAP = {game: {field: 15, goal: 1}, training: {field: 20, goal: 2}};
 const capOf = t => isGame(t) ? CAP.game : CAP.training;
 const capTotal = t => capOf(t).field + capOf(t).goal;
 const slotOf = r => r?.pos === "G" ? "goal" : "field";
+// Trainings: a field player nominated as goalie for this one training, with his strength in goal
+// (map "goalies" {playerId: rating}); everywhere else he keeps his position and strength
+const subGoalie = (t, pid) => t && !isGame(t) && t.goalies && Number.isFinite(+t.goalies[pid]) ? +t.goalies[pid] : null;
+const posIn = (t, r) => subGoalie(t, r.id) !== null ? "G" : r.pos;
+const ratingIn = (t, p) => subGoalie(t, p.id) ?? (+p.rating || 5);
 const waitOf = t => Array.isArray(t.wait) ? t.wait : [];
 // Players on the waiting list in their order
 const waiting = t => waitOf(t).filter(pid => S.roster[pid] && answerOf(t, pid) === "wait").map(pid => S.roster[pid]);
-function slotCounts(t){ const c = {field: 0, goal: 0}; for (const r of attendees(t)) c[slotOf(r)]++; return c; }
+function slotCounts(t){ const c = {field: 0, goal: 0}; for (const r of attendees(t)) c[slotOf({pos: posIn(t, r)})]++; return c; }
 const overCap = t => { const c = slotCounts(t), cap = capOf(t); return {field: Math.max(0, c.field - cap.field), goal: Math.max(0, c.goal - cap.goal), c, cap}; };
-const isFull = (t, pid) => { const s = slotOf(S.roster[pid]); return slotCounts(t)[s] >= capOf(t)[s]; };
+const isFull = (t, pid) => { const s = slotOf({pos: posIn(t, S.roster[pid] || {id: pid})}); return slotCounts(t)[s] >= capOf(t)[s]; };
 // A trainer's tap in "Anwesend": dabei -> abgesagt (waiting list while there are too many),
 // waiting list -> abgesagt, abgesagt -> dabei (waiting list when full)
 function nextAnswer(t, pid){
-  const a = answerOf(t, pid), s = slotOf(S.roster[pid]), c = slotCounts(t), cap = capOf(t);
+  const a = answerOf(t, pid), s = slotOf({pos: posIn(t, S.roster[pid] || {id: pid})}), c = slotCounts(t), cap = capOf(t);
   if (a === "in") return c[s] > cap[s] ? "wait" : "out";
   if (a === "wait") return "out";
   return c[s] >= cap[s] ? "wait" : "in";
@@ -1056,7 +1062,7 @@ const sum = t => t.reduce((s,p)=>s+(+p.rating||0),0);
 const mean = t => t.length ? sum(t)/t.length : 0;
 const cost = (A,B) => (!A.length||!B.length) ? Infinity : Math.abs(mean(A)-mean(B)) * (A.length+B.length)/2;
 function generate(t){
-  const ps = attendees(t).map(r => S.players[r.id]).filter(Boolean);
+  const ps = attendees(t).map(r => S.players[r.id]).filter(Boolean).map(p => ({...p, pos: posIn(t, p), rating: ratingIn(t, p)}));
   if (ps.length < 2) { status("Mindestens zwei anwesende Spieler nötig.", true); return; }
   const groups = {G:[],D:[],O:[]}; ps.forEach(p => (groups[p.pos] || groups.O).push(p));
   const seen = new Map();
@@ -1186,7 +1192,7 @@ function renderDetail(){
   $("#detailPanel").hidden = !t; $("#attPanel").hidden = !t || !isTrainer(); $("#genPanel").hidden = !t || t.cancelled || isGame(t);
   $("#linePanel").hidden = !t || t.cancelled || !isGame(t);
   if (!t) { box.innerHTML = ""; return; }
-  const ins = attendees(t), outs = absentees(t), cnt = k => ins.filter(r=>r.pos===k).length;
+  const ins = attendees(t), outs = absentees(t), cnt = k => ins.filter(r=>posIn(t, r)===k).length;
   const late = Date.now() >= deadlineOf(t);
   let mine = "";
   const my = S.me?.playerId;
@@ -1232,18 +1238,31 @@ function renderDetail(){
 function renderPresent(){
   const t = selTraining(), box = $("#presentList"); if (!t) return;
   const ps = Object.values(S.roster).filter(r => r.active || t.responses[r.id] === "in").sort(byName);
-  const ins = attendees(t), cnt = k => ins.filter(r=>r.pos===k).length;
+  const ins = attendees(t), cnt = k => ins.filter(r=>posIn(t, r)===k).length;
   $("#presentCount").textContent = `${ins.length} von max. ${capTotal(t)} · Tor ${cnt("G")} · Verteidigung ${cnt("D")} · Sturm ${cnt("O")}${waiting(t).length ? ` · ${waiting(t).length} auf der Warteliste` : ""}`;
   if (!ps.length) { box.innerHTML = `<div class="empty">${S.loaded.roster ? "Noch keine Spieler. Lege sie unter „Spieler“ an." : "Spieler werden geladen …"}</div>`; return; }
   box.innerHTML = ["G","D","O"].map(k => `<div class="posgroup"><div class="poshead">${POS[k]}</div><div class="chips">${
-    ps.filter(r=>r.pos===k).map(r=>`<button class="chip${r.access?"":" guest"}${answerOf(t,r.id)==="wait"?" wait":""}" data-toggle="${esc(r.id)}" aria-pressed="${answerOf(t,r.id)==="in"}">${esc(r.name)}<b>${fmt(+(S.players[r.id]?.rating)||5)}</b></button>`).join("")
+    ps.filter(r=>posIn(t, r)===k).map(r=>`<button class="chip${r.access?"":" guest"}${answerOf(t,r.id)==="wait"?" wait":""}" data-toggle="${esc(r.id)}" aria-pressed="${answerOf(t,r.id)==="in"}">${esc(r.name)}${subGoalie(t, r.id) !== null ? ` <small>(${POS_SHORT[r.pos] || "S"})</small>` : ""}<b>${fmt(ratingIn(t, S.players[r.id] || {id: r.id}))}</b></button>`).join("")
   }</div></div>`).join("");
-  if (cnt("G")===1) box.insertAdjacentHTML("beforeend", `<p class="note warn">Nur ein Torhüter dabei – ein Team spielt ohne.</p>`);
+  if (!isGame(t)) box.insertAdjacentHTML("beforeend", goalieHTML(t, cnt("G")));
+  else if (cnt("G")===1) box.insertAdjacentHTML("beforeend", `<p class="note warn">Nur ein Torhüter dabei – ein Team spielt ohne.</p>`);
 }
 
+// Training: nominate field players as goalies for this training only
+function goalieHTML(t, nG){
+  const subs = Object.keys(t.goalies || {}).filter(pid => S.roster[pid] && subGoalie(t, pid) !== null);
+  const list = subs.map(pid => `<div class="titem"><span><b>${esc(S.roster[pid].name)}</b> spielt in diesem Training im Tor (Stärke ${fmt(subGoalie(t, pid))}).</span>
+    <span class="row"><button data-ungoalie="${esc(pid)}">Zurück aufs Feld</button></span></div>`).join("");
+  const cand = attendees(t).filter(r => posIn(t, r) !== "G");
+  const form = nG < 2 && cand.length ? `<span>${nG ? "Nur ein Torhüter dabei" : "Kein Torhüter dabei"} – ein Feldspieler kann für dieses Training ins Tor:</span>
+    <div class="row"><select id="goalieWho" aria-label="Spieler fürs Tor">${cand.map(r => `<option value="${esc(r.id)}">${esc(r.name)}</option>`).join("")}</select>
+      <label style="display:flex;gap:6px;align-items:center">Stärke im Tor<input id="goalieRating" type="number" min="1" max="10" step="0.1" value="5" style="width:80px"></label>
+      <button class="primary" data-goalie="${esc(t.id)}">Ins Tor</button></div>` : "";
+  return list || form ? `<div class="note${form ? " warn" : ""} todo" style="margin-top:10px">${list}${form}<span class="muted">Gilt nur für dieses Training: für die Team-Einteilung und die Anzeige. In der Spielerliste bleibt er Feldspieler mit seiner normalen Stärke.</span></div>` : "";
+}
 function teamHTML(cls, label, ids, edit){
-  const order = {G:0,D:1,O:2};
-  const people = ids.map(id => ({...(S.roster[id]||{}), ...(S.players[id]||{}), id})).filter(p => p.name);
+  const order = {G:0,D:1,O:2}, t = selTraining();
+  const people = ids.map(id => ({...(S.roster[id]||{}), ...(S.players[id]||{}), id})).filter(p => p.name).map(p => ({...p, pos: posIn(t, p), rating: ratingIn(t, p)}));
   const head = isTrainer() ? `${people.length} Sp. · Σ ${fmt(sum(people))} · Ø ${fmt(mean(people))}` : `${people.length} Spieler`;
   return `<div class="team ${cls}"><h3>${label}<span>${head}</span></h3>${
     people.sort((x,y)=>order[x.pos]-order[y.pos]||byName(x,y)).map(p=>`<div class="tp"><span class="pos">${POS_SHORT[p.pos]||"S"}</span><span>${nrHTML(p)}${esc(p.name)}</span><span class="q">${isTrainer() ? fmt(+p.rating||5) : ""}</span>${
@@ -2005,7 +2024,7 @@ Anleitung mit Bildern: ${APP_URL}docs/stars-anleitung-spieler.pdf`;
 }
 function teamsText(t, tm){
   const name = id => S.roster[id]?.name || S.players[id]?.name;
-  const l = ids => ids.map(id => ({id, n:name(id), r:(S.roster[id]||S.players[id]||{})})).filter(x=>x.n).map(x=>`${nrText(x.r)}${x.n} (${POS_SHORT[x.r.pos]||"S"})`).join(", ");
+  const l = ids => ids.map(id => ({id, n:name(id), r:(S.roster[id]||S.players[id]||{})})).filter(x=>x.n).map(x=>`${nrText(x.r)}${x.n} (${POS_SHORT[posIn(t, {...x.r, id: x.id})]||"S"})`).join(", ");
   return `${kindOf(t)} ${dDay(t.start)} ${tRange(t)} Uhr${t.place ? " – "+t.place : ""}\nTeam A: ${l(tm.A)}\nTeam B: ${l(tm.B)}`;
 }
 async function copy(text, btn){
@@ -2036,6 +2055,14 @@ document.addEventListener("click", e => {
       api.setAnswer(tr, pid, nx);
       if (nx === "wait") status(`${S.roster[pid]?.name || "Der Spieler"} steht auf der Warteliste (Platz ${waiting(tr).length + 1}).`);
     }
+    else if (t.dataset.goalie && tr) {
+      const pid = $("#goalieWho")?.value, r = Number(($("#goalieRating")?.value || "").replace(",", "."));
+      if (!pid) return;
+      if (!Number.isFinite(r) || r < 1 || r > 10) { status("Die Stärke im Tor muss zwischen 1 und 10 liegen.", true); return; }
+      api.setGoalie(tr, pid, Math.round(r * 10) / 10);
+      status(`${S.roster[pid]?.name} spielt in diesem Training im Tor.` + (draftOf(tr) ? " Für neue Teams „Neu mischen“ tippen." : ""));
+    }
+    else if (t.dataset.ungoalie && tr) { api.setGoalie(tr, t.dataset.ungoalie, null); status(`${S.roster[t.dataset.ungoalie]?.name} spielt wieder auf seiner normalen Position.`); }
     else if (t.dataset.matask && tr) {
       const pid = $("#matPick")?.value; if (!pid) { status("Niemand mit Zugang ist dabei, den du fragen könntest.", true); return; }
       api.askMaterial(tr, pid); status(`${S.roster[pid]?.name} wird per Push-Nachricht gefragt.`);
