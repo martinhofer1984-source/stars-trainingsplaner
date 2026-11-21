@@ -224,6 +224,7 @@ td input.email{width:220px}
 
   <section data-section="login" class="panel">
     <h2>Anmelden</h2>
+    <div id="chromeLogin"></div>
     <p class="muted">Melde dich mit der Adresse an, die dein Trainer für dich freigeschaltet hat. Danach funktioniert die App auch ohne Netz.</p>
     <div class="row"><button id="btnGoogle" class="primary">Mit Google anmelden</button></div>
     <div class="poshead">oder per E-Mail-Link</div>
@@ -1105,6 +1106,7 @@ function render(){
   const cur = document.querySelector(`nav a[data-view="${v}"]`); if (cur) $("#menuLabel").textContent = cur.firstChild.textContent;
   document.querySelectorAll("nav a").forEach(a => { if (a.dataset.view===v) a.setAttribute("aria-current","page"); else a.removeAttribute("aria-current"); });
   document.querySelectorAll("[data-section]").forEach(s => s.hidden = s.dataset.section !== v);
+  if (v==="login") $("#chromeLogin").innerHTML = chromeHintHTML();
   if (v==="denied") $("#deniedEmail").textContent = S.user?.email || ""; $("#testDenied").hidden = !TEST_DB;
   if (v==="training") { renderTodo(); renderTrainings(); renderAbsences(); renderDetail(); if (isTrainer()) renderPresent(); renderTeams(); renderLines(); }
   if (v==="spieler") { if ($("#playerTable").contains(document.activeElement)) pendingRender = true; else renderPlayers(); }
@@ -1912,14 +1914,25 @@ function pushText(st){
 }
 function renderPush(){
   const st = pushState();
-  $("#pushBox").innerHTML = `<p class="${st === "on" ? "" : "muted"}">${pushText(st)}</p>${
+  $("#pushBox").innerHTML = `${st === "on" ? "" : chromeHintHTML()}<p class="${st === "on" ? "" : "muted"}">${pushText(st)}</p>${
     st === "off" ? `<div class="row"><button class="primary" id="btnPushOn">Benachrichtigungen einschalten</button></div>`
     : st === "on" ? `<div class="row"><button id="btnPushTest">Test-Nachricht an mich</button><button id="btnPushOff">Ausschalten</button></div>` : ""}`;
 }
+// Android: Samsung Internet and in-app views (camera QR scanner, WhatsApp, mail) often cannot
+// show notifications; Chrome can. The intent link opens this page in Chrome.
+const isAndroid = () => /android/i.test(navigator.userAgent);
+const notChrome = () => isAndroid() && (/SamsungBrowser/i.test(navigator.userAgent) || /; wv\)/.test(navigator.userAgent));
+function chromeHintHTML(){
+  if (!notChrome()) return "";
+  const url = `intent://${location.host}${location.pathname}#Intent;scheme=https;package=com.android.chrome;S.browser_fallback_url=${encodeURIComponent("https://play.google.com/store/apps/details?id=com.android.chrome")};end`;
+  return `<div class="note warn"><b>Tipp:</b> Die App ist gerade nicht in Chrome geöffnet (z. B. nach dem Scannen des QR-Codes). Benachrichtigungen funktionieren am zuverlässigsten in <b>Chrome</b>.
+    <div class="row"><a class="btn primary" href="${esc(url)}">In Chrome öffnen</a></div>
+    <span class="muted">Klappt das nicht: Chrome öffnen und <b>${esc(location.host)}</b> eintippen. Dann über ⋮ → „App installieren“ aufs Handy holen.</span></div>`;
+}
 function renderPushHint(){
   const st = pushState();
-  $("#pushHint").innerHTML = st === "off" ? `<p class="note">Push-Nachrichten sind auf diesem Gerät aus. <button class="primary" id="btnPushOn">Einschalten</button></p>`
-    : st === "ios" ? `<p class="note">${pushText("ios")}</p>` : "";
+  $("#pushHint").innerHTML = (st === "on" ? "" : chromeHintHTML()) + (st === "off" ? `<p class="note">Push-Nachrichten sind auf diesem Gerät aus. <button class="primary" id="btnPushOn">Einschalten</button></p>`
+    : st === "ios" ? `<p class="note">${pushText("ios")}</p>` : "");
 }
 async function messaging(){
   const M = await import(SDK + "firebase-messaging.js");
