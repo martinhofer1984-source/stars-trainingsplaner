@@ -188,6 +188,28 @@ a.pitem.dl:hover{border-color:var(--gold)}
 .names{font-size:14px;line-height:1.7}
 .names b{font-weight:600}
 details.new summary{cursor:pointer;font-weight:600;padding-block:4px}
+#newAbsence > summary, #newTraining > summary{display:none}
+#newAbsence:not([open]), #newTraining:not([open]){display:none}
+.actions{display:flex;flex-wrap:wrap;gap:8px}
+.actions button[aria-pressed="true"]{border-color:var(--gold);color:var(--gold)}
+.tnext{border:2px solid var(--gold);border-radius:var(--r);padding:12px;display:grid;gap:8px;background:var(--surface)}
+.tnext > button{all:unset;cursor:pointer;display:grid;gap:4px}
+.tnext .lbl{font:600 11px var(--body);letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+.tnext .ttl{font:700 22px var(--display);text-transform:uppercase;line-height:1.1}
+.tnext .sub{font-size:14px;color:var(--muted)}
+.tnext .row{justify-content:space-between;align-items:center}
+.kind{font:600 11px var(--body);padding:1px 7px;border-radius:999px;border:1px solid var(--line);color:var(--muted);margin-right:6px}
+.kind.game{border-color:var(--gold);color:var(--gold)}
+.dhead{display:grid;gap:8px}
+.dhead .back{color:var(--muted);text-decoration:none;font-weight:600;font-size:14px;width:max-content}
+.dhead h2{margin:0}
+.dhead h2 small{display:block;font:500 14px var(--body);color:var(--muted);text-transform:none;letter-spacing:0;margin-top:2px}
+.dtabs{display:grid;grid-auto-flow:column;grid-auto-columns:1fr;border:1px solid var(--line);border-radius:var(--r);overflow:hidden}
+.dtabs button{border:0;border-radius:0;background:transparent;padding:8px 4px;font-weight:600}
+.dtabs button[aria-pressed="true"]{background:var(--gold);color:#111}
+details.names summary{cursor:pointer;list-style-position:outside}
+details.names > div{margin-top:4px}
+details.hint summary{cursor:pointer;color:var(--muted);font-size:13px}
 .form{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:10px;margin-top:10px}
 .form label{display:grid;gap:4px;font-size:13px;color:var(--muted)}
 .chip.guest{border-style:dashed}
@@ -249,11 +271,11 @@ td input.email{width:220px}
     </div>
   </section>
 
-  <section data-section="training" class="panel">
+  <section data-section="training" class="panel" id="listPanel">
     <h2>Termine <small id="tCount"></small></h2>
     <div id="todoBox" class="note todo" hidden></div>
     <div id="tList" class="tlist"></div>
-    <div class="row" id="calAll"><button id="btnCalSub">Kalender abonnieren</button></div>
+    <div class="actions" id="calAll"><button id="btnAbsOpen">Abwesend melden</button><button id="btnCalSub">Kalender abonnieren</button><button id="btnNewT" class="trainer-only">+ Termin</button></div>
     <div id="calSubBox" class="note" hidden></div>
     <details class="new" id="newAbsence">
       <summary>Krank oder im Urlaub? Abwesenheit melden</summary>
@@ -280,13 +302,15 @@ td input.email{width:220px}
     </details>
   </section>
 
+  <section data-section="training" class="panel" id="detailHead" hidden><div class="dhead" id="dHead"></div></section>
+
   <section data-section="training" class="panel" id="detailPanel">
     <div id="tDetail"></div>
   </section>
 
   <section data-section="training" class="panel trainer-only" id="attPanel">
     <h2>Anwesend <small id="presentCount"></small></h2>
-    <p class="muted">Spieler mit Zugang sind automatisch dabei, bis sie absagen. Gäste ohne Zugang (gestrichelt) tippst du an. Als Trainer kannst du jederzeit ändern, auch nach der Absagefrist. Ist der Termin voll, kommt ein Spieler beim Antippen auf die Warteliste (gold gestrichelt).</p>
+    <details class="hint"><summary>ⓘ So funktioniert's</summary><p class="muted">Spieler mit Zugang sind automatisch dabei, bis sie absagen. Gäste ohne Zugang (gestrichelt) tippst du an. Als Trainer kannst du jederzeit ändern, auch nach der Absagefrist. Ist der Termin voll, kommt ein Spieler beim Antippen auf die Warteliste (gold gestrichelt).</p></details>
     <div id="presentList" class="posgroup"></div>
   </section>
 
@@ -1083,12 +1107,15 @@ function generate(t){
 
 /* ---------- rendering ---------- */
 // Link to one appointment ("#termin-<id>", from the Team-Info and push messages): opens it in Termine
+// Termine: the list ("#training") or the detail page of one appointment ("#t/<id>")
+const detailId = () => { const m = /^#t\/(.+)$/.exec(location.hash); return m ? decodeURIComponent(m[1]) : null; };
+const inDetail = () => { const id = detailId(); return !!id && S.trainings.some(t => t.id === id); };
+const openDetail = id => { S.dtab = "info"; location.hash = "#t/" + encodeURIComponent(id); };
 function takeTerminHash(){
   const m = /^#termin-(.+)$/.exec(location.hash); if (!m || !S.loaded?.trainings) return;
   const id = decodeURIComponent(m[1]);
-  history.replaceState(null, "", location.pathname + location.search + "#training");
-  if (S.trainings.some(t => t.id === id)) { S.sel = id; setTimeout(() => $("#detailPanel").scrollIntoView({behavior: "smooth", block: "start"}), 60); }
-  else status("Dieser Termin ist schon vorbei oder wurde gelöscht.", true);
+  if (S.trainings.some(t => t.id === id)) { S.dtab = "info"; history.replaceState(null, "", location.pathname + location.search + "#t/" + encodeURIComponent(id)); }
+  else { history.replaceState(null, "", location.pathname + location.search + "#training"); status("Dieser Termin ist schon vorbei oder wurde gelöscht.", true); }
 }
 function view(){
   if (!S.authKnown) return "loading";
@@ -1116,6 +1143,11 @@ function render(){
   document.querySelectorAll("[data-section]").forEach(s => s.hidden = s.dataset.section !== v);
   if (v==="login") $("#chromeLogin").innerHTML = chromeHintHTML();
   if (v==="denied") $("#deniedEmail").textContent = S.user?.email || ""; $("#testDenied").hidden = !TEST_DB;
+  if (v==="training") {
+    const did = detailId();
+    if (did && S.loaded.trainings && !S.trainings.some(t => t.id === did)) { history.replaceState(null, "", location.pathname + location.search + "#training"); status("Dieser Termin ist schon vorbei oder wurde gelöscht.", true); }
+    else if (did) S.sel = did;
+  }
   if (v==="training") { renderTodo(); renderTrainings(); renderAbsences(); renderDetail(); if (isTrainer()) renderPresent(); renderTeams(); renderLines(); }
   if (v==="spieler") { if ($("#playerTable").contains(document.activeElement)) pendingRender = true; else renderPlayers(); }
   if (v==="statistik") renderStats();
@@ -1134,15 +1166,30 @@ function renderTrainings(){
   if (!S.loaded.trainings) { box.innerHTML = `<div class="empty">Termine werden geladen …</div>`; return; }
   if (!S.trainings.length) { box.innerHTML = `<div class="empty">${isTrainer() ? "Noch kein Termin geplant. Lege unten den nächsten an." : "Noch kein Termin geplant."}</div>`; return; }
   const my = S.me?.playerId;
-  box.innerHTML = S.trainings.map(t => {
+  // The next appointment as a large card with the own answer, the others as a compact list
+  const next = S.trainings.find(t => !t.cancelled);
+  const kindTag = t => `<span class="kind${isGame(t) ? " game" : ""}">${kindOf(t)}</span>`;
+  let top = "";
+  if (next) {
+    const a = my && S.roster[my] ? answerOf(next, my) : null, abs = my ? absenceState(next, my) : null, late = Date.now() >= deadlineOf(next);
+    const pill = isTrainer() && !my ? `<span class="pill in">${attendees(next).length} dabei</span>`
+      : abs ? `<span class="pill">${abs === "out" ? "abgemeldet" : "wartet"}</span>`
+      : a === "in" ? `<span class="pill in">Du bist dabei</span>` : a === "wait" ? `<span class="pill wait">Warteliste</span>` : a ? `<span class="pill">abgesagt</span>` : `<span class="pill in">${attendees(next).length} dabei</span>`;
+    const quick = a && !abs && !late ? `<button data-quick="${esc(next.id)}" data-val="${a !== "out" ? "out" : "in"}" class="${a !== "out" ? "danger" : "primary"}">${a !== "out" ? "Absagen" : "Doch dabei"}</button>` : `<button data-sel="${esc(next.id)}">Details</button>`;
+    top = `<div class="tnext"><button data-sel="${esc(next.id)}"><span class="lbl">Nächster Termin</span>
+        <span class="ttl">${kindOf(next)} · ${dDay(next.start)}</span>
+        <span class="sub">${tRange(next)} Uhr${next.place ? " · " + esc(next.place) : ""}${next.note ? " · " + esc(next.note) : ""}</span></button>
+      <div class="row">${pill}${quick}</div></div>`;
+  }
+  box.innerHTML = top + S.trainings.filter(t => t !== next).map(t => {
     let pill;
     if (t.cancelled) pill = `<span class="pill cancel">fällt aus</span>`;
     else if (!isTrainer() && my && absenceState(t, my)) pill = `<span class="pill">${absenceState(t, my) === "out" ? "abgemeldet" : "wartet"}</span>`;
     else if (!isTrainer() && my) { const a = answerOf(t, my); pill = a === "in" ? `<span class="pill in">dabei</span>` : a === "wait" ? `<span class="pill wait">Warteliste</span>` : `<span class="pill">abgesagt</span>`; }
     else { const o = overCap(t), w = waiting(t).length; pill = `<span class="pill ${o.field || o.goal ? "wait" : "in"}">${attendees(t).length} dabei${w ? ` · ${w} wartet` : ""}</span>`; }
-    return `<button class="tcard" data-sel="${esc(t.id)}" aria-current="${t.id===S.sel}">
+    return `<button class="tcard" data-sel="${esc(t.id)}">
       <span class="tdate"><small>${dDay(t.start).slice(0,2)}</small>${dDay(t.start).slice(3)}</span>
-      <span class="tinfo"><b>${tRange(t)} Uhr${t.place ? " · "+esc(t.place) : ""}</b><span>${kindOf(t)}${t.note ? " · "+esc(t.note) : ""}</span></span>
+      <span class="tinfo"><b>${tRange(t)} Uhr${t.place ? " · "+esc(t.place) : ""}</b><span>${kindTag(t)}${t.note ? esc(t.note) : ""}</span></span>
       ${pill}</button>`;
   }).join("");
 }
@@ -1189,9 +1236,18 @@ function renderAbsences(){
 
 function renderDetail(){
   const box = $("#tDetail"), t = selTraining();
-  $("#detailPanel").hidden = !t; $("#attPanel").hidden = !t || !isTrainer(); $("#genPanel").hidden = !t || t.cancelled || isGame(t);
-  $("#linePanel").hidden = !t || t.cancelled || !isGame(t);
+  // List page or detail page; trainers switch the detail page with tabs (Übersicht, Anwesend, Teams/Linien)
+  const det = inDetail() && !!t, tab = isTrainer() ? (S.dtab || "info") : null;
+  $("#listPanel").hidden = det; $("#detailHead").hidden = !det;
+  $("#detailPanel").hidden = !det || (tab !== null && tab !== "info");
+  $("#attPanel").hidden = !det || !isTrainer() || tab !== "att";
+  $("#genPanel").hidden = !det || t.cancelled || isGame(t) || (tab !== null && tab !== "teams");
+  $("#linePanel").hidden = !det || t.cancelled || !isGame(t) || (tab !== null && tab !== "teams");
   if (!t) { box.innerHTML = ""; return; }
+  $("#dHead").innerHTML = `<a class="back" href="#training">← Termine</a>
+    <h2>${kindOf(t)} · ${dDay(t.start)}<small>${tRange(t)} Uhr${t.place ? " · " + esc(t.place) : ""}${t.cancelled ? " · fällt aus" : ""}</small></h2>
+    ${isTrainer() ? `<div class="dtabs" role="group" aria-label="Bereich">${[["info", "Übersicht"], ["att", `Anwesend ${attendees(t).length}`], ...(t.cancelled ? [] : [["teams", isGame(t) ? "Linien" : "Teams"]])]
+      .map(([k, l]) => `<button data-dtab="${k}" aria-pressed="${tab === k}">${l}</button>`).join("")}</div>` : ""}`;
   const ins = attendees(t), outs = absentees(t), cnt = k => ins.filter(r=>posIn(t, r)===k).length;
   const late = Date.now() >= deadlineOf(t);
   let mine = "";
@@ -1200,7 +1256,7 @@ function renderDetail(){
   if (my && S.roster[my] && !t.cancelled && ownAbs) {
     mine = `<div class="mystatus">
       <span class="big out">${ownState === "out" ? "Du bist abgemeldet" : "Abmeldung wartet"}</span>
-      <span class="muted">${ownState === "out" ? `${ABS_REASON[ownAbs.reason] || "abwesend"} bis ${dDay(ownAbs.to)} – wieder fit? Unter „Abwesenheit melden“ die Abwesenheit beenden.`
+      <span class="muted">${ownState === "out" ? `${ABS_REASON[ownAbs.reason] || "abwesend"} bis ${dDay(ownAbs.to)} – wieder fit? In der Terminliste bei deiner Meldung „Wieder da“ tippen.`
         : "Du hast dich nach der Absagefrist abgemeldet – ein Trainer muss das noch bestätigen."}</span>
     </div>`;
   }
@@ -1214,16 +1270,15 @@ function renderDetail(){
                 <span class="muted">möglich bis ${dDay(deadlineOf(t))} ${dTime(deadlineOf(t))} Uhr</span>`}
     </div>`;
   }
-  box.innerHTML = `<h2>${kindOf(t)} · ${dDay(t.start)} · ${tRange(t)} Uhr <small>${esc(t.place||"")}</small></h2>
-    ${t.note ? `<p>${esc(t.note)}</p>` : ""}
+  box.innerHTML = `${t.note ? `<p>${esc(t.note)}</p>` : ""}
     ${t.cancelled ? `<p class="note warn">Dieser Termin fällt aus.</p>` : mine}
-    ${t.cancelled ? "" : `<div class="names"><b>Dabei (${ins.length}, max. ${capTotal(t)}):</b> Tor ${cnt("G")} · Verteidigung ${cnt("D")} · Sturm ${cnt("O")}<br>${ins.map(r=>esc(r.name)).join(", ") || "–"}</div>
+    ${t.cancelled ? "" : `<details class="names"><summary><b>${ins.length} dabei</b> <span class="muted">(max. ${capTotal(t)}) · Tor ${cnt("G")} · Verteidigung ${cnt("D")} · Sturm ${cnt("O")}</span></summary><div>${ins.map(r=>esc(r.name)).join(", ") || "–"}</div></details>
     ${waiting(t).length ? `<div class="names"><b>Warteliste (${waiting(t).length}):</b> ${waiting(t).map(r => esc(r.name)).join(", ")}</div>` : ""}
-    <div class="names"><b>Abgesagt (${outs.length}):</b> ${outs.map(r => { const ab = absenceState(t, r.id) === "out" && absenceFor(t, r.id); return esc(r.name) + (ab ? ` <small class="muted">(${isTrainer() ? ABS_REASON[ab.reason] || "abwesend" : "abwesend"})</small>` : ""); }).join(", ") || "–"}</div>
+    <details class="names"><summary><b>${outs.length} abgesagt</b></summary><div>${outs.map(r => { const ab = absenceState(t, r.id) === "out" && absenceFor(t, r.id); return esc(r.name) + (ab ? ` <small class="muted">(${isTrainer() ? ABS_REASON[ab.reason] || "abwesend" : "abwesend"})</small>` : ""); }).join(", ") || "–"}</div></details>
     ${isTrainer() ? Object.keys(S.roster).filter(pid => absenceState(t, pid) === "pending").map(pid => { const ab = absenceFor(t, pid);
       return `<p class="note warn"><b>${esc(S.roster[pid].name)}</b> hat sich nach der Frist abgemeldet (${ABS_REASON[ab.reason] || "abwesend"}${ab.note ? ": " + esc(ab.note) : ""}). <button class="primary" data-abconfirm="${esc(ab.id)}" data-tid="${esc(t.id)}">Abmeldung bestätigen</button></p>`; }).join("") : ""}
     ${isTrainer() && (overCap(t).field || overCap(t).goal) ? (() => { const o = overCap(t);
-      return `<p class="note warn"><b>Zu viele:</b> ${[o.field ? `${o.c.field} Feldspieler (max. ${o.cap.field})` : "", o.goal ? `${o.c.goal} Torhüter (max. ${o.cap.goal})` : ""].filter(Boolean).join(" und ")}. Tippe unten bei „Anwesend“ an, wer auf die Warteliste kommt – Gäste zuerst. Sagt jemand ab, rückt der Erste der Warteliste automatisch nach.</p>`; })() : ""}
+      return `<p class="note warn"><b>Zu viele:</b> ${[o.field ? `${o.c.field} Feldspieler (max. ${o.cap.field})` : "", o.goal ? `${o.c.goal} Torhüter (max. ${o.cap.goal})` : ""].filter(Boolean).join(" und ")}. Im Reiter „Anwesend“ antippen, wer auf die Warteliste kommt – Gäste zuerst. Sagt jemand ab, rückt der Erste der Warteliste automatisch nach.</p>`; })() : ""}
     ${materialHTML(t)}
     <div class="row cal"><span class="muted">In meinen Kalender:</span>
       <a class="btn" href="${esc(googleCalUrl(t))}" target="_blank" rel="noopener">Google Kalender</a>
@@ -2042,14 +2097,27 @@ document.addEventListener("click", e => {
   const t = e.target.closest("button, th[data-sort], th[data-ssort]"); if (!t) return;
   const tr = selTraining();
   try {
-    if (t.dataset.sel) { S.sel = t.dataset.sel; render(); $("#detailPanel").scrollIntoView({behavior:"smooth", block:"start"}); }
+    if (t.dataset.sel) openDetail(t.dataset.sel);
+    else if (t.dataset.dtab) { S.dtab = t.dataset.dtab; render(); window.scrollTo(0, 0); }
+    else if (t.dataset.quick) {
+      const x = S.trainings.find(y => y.id === t.dataset.quick); if (!x || !S.me?.playerId) return;
+      if (Date.now() >= deadlineOf(x)) { status("Die Absagefrist ist abgelaufen. Bitte direkt beim Trainer melden.", true); return; }
+      const full = t.dataset.val === "in" && isFull(x, S.me.playerId);
+      api.answer(x, S.me.playerId, t.dataset.val);
+      status(t.dataset.val === "out" ? "Abgesagt." : full ? "Der Termin ist voll – du kommst auf die Warteliste." : "Du bist wieder dabei.");
+    }
+    else if (t.id === "btnAbsOpen" || t.id === "btnNewT") {
+      const d = $(t.id === "btnAbsOpen" ? "#newAbsence" : "#newTraining"), other = $(t.id === "btnAbsOpen" ? "#newTraining" : "#newAbsence");
+      d.open = !d.open; other.open = false; $("#calSubBox").hidden = true;
+      if (d.open) d.scrollIntoView({behavior: "smooth", block: "nearest"});
+    }
     else if (t.dataset.answer && tr) {
       if (Date.now() >= deadlineOf(tr)) { status("Die Absagefrist ist abgelaufen. Bitte direkt beim Trainer melden.", true); return; }
       const full = t.dataset.answer === "in" && isFull(tr, S.me.playerId);
       api.answer(tr, S.me.playerId, t.dataset.answer);
       status(t.dataset.answer === "out" ? "Abgesagt." : full ? `Der Termin ist voll – du kommst auf die Warteliste und rückst automatisch nach, sobald ein Platz frei wird.` : "Du bist wieder dabei.");
     }
-    else if (t.dataset.toggle && tr && absenceState(tr, t.dataset.toggle) === "out") status(`${S.roster[t.dataset.toggle]?.name || "Der Spieler"} ist für diesen Termin abgemeldet. Zum Ändern die Abwesenheit oben unter „Abwesenheit melden“ beenden.`, true);
+    else if (t.dataset.toggle && tr && absenceState(tr, t.dataset.toggle) === "out") status(`${S.roster[t.dataset.toggle]?.name || "Der Spieler"} ist für diesen Termin abgemeldet. Zum Ändern die Abwesenheit in der Terminliste beenden.`, true);
     else if (t.dataset.toggle && tr) {
       const pid = t.dataset.toggle, nx = nextAnswer(tr, pid);
       api.setAnswer(tr, pid, nx);
@@ -2312,7 +2380,7 @@ document.addEventListener("input", e => {
     S.resDraft = {id: el.dataset.tid, a: q("resa")?.value ?? "", b: q("resb")?.value ?? ""};
   }
 });
-window.addEventListener("hashchange", () => { closePast(); closeMenu(); render(); });
+window.addEventListener("hashchange", () => { closePast(); closeMenu(); render(); if (/^#(t\/|training)/.test(location.hash)) window.scrollTo(0, 0); });
 window.addEventListener("online", render);
 window.addEventListener("offline", render);
 // Re-evaluate deadlines now and then while the app stays open
