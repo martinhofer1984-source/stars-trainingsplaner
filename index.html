@@ -1593,8 +1593,9 @@ async function openCalSub(renew){
     const https = `${APP_URL}kalender/${TEST_DB ? "test/" : ""}${token}.ics`, webcal = https.replace(/^https:/, "webcal:");
     box.innerHTML = `<span><b>Kalender abonnieren:</b> Neue, geänderte und ausgefallene Termine kommen von selbst in deinen Kalender, mit deinem Stand (abgesagt, Warteliste). Je nach Kalender dauert eine Änderung bis zu einigen Stunden.</span>
       <div class="row"><a class="btn primary" href="${esc(webcal)}">iPhone, Mac, Outlook</a>
+        <a class="btn" href="https://calendar.google.com/calendar/render?cid=${encodeURIComponent(webcal)}" target="_blank" rel="noopener">Google Kalender</a>
         <button data-copy="${esc(https)}">Link kopieren</button></div>
-      <span><b>Google Kalender:</b> „Link kopieren“, dann am PC auf calendar.google.com links neben „Weitere Kalender“ auf <b>+</b> → <b>Per URL</b> → Link einfügen → <b>Kalender hinzufügen</b> (nicht „öffentlich machen“). Am Handy geht das nur so, nicht in der App. Danach in der Google-Kalender-App am Handy: Menü ☰ → Einstellungen → „Stars“ → <b>Synchronisieren</b> einschalten (iPhone mit Google: calendar.google.com/calendar/syncselect → „Stars“ anhaken).</span>
+      <span><b>Google Kalender:</b> Taste antippen und das Hinzufügen bestätigen. Erscheint der Kalender nicht: „Link kopieren“, dann am PC auf calendar.google.com links neben „Weitere Kalender“ auf <b>+</b> → <b>Per URL</b> → Link einfügen → <b>Kalender hinzufügen</b> (nicht „öffentlich machen“). Am Handy geht das nur so, nicht in der App. Danach in der Google-Kalender-App am Handy: Menü ☰ → Einstellungen → „Stars“ → <b>Synchronisieren</b> einschalten (iPhone mit Google: calendar.google.com/calendar/syncselect → „Stars“ anhaken).</span>
       <span class="muted">Der Link ist persönlich – bitte nicht weitergeben. <button data-calrenew>Neuen Link erstellen</button> macht den alten ungültig.</span>`;
   } catch (e) { box.textContent = "Der Abo-Link konnte nicht erstellt werden (" + (e?.code || e?.message || "Fehler") + "). Ist das Internet an?"; }
 }
