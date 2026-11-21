@@ -158,6 +158,14 @@ body:not(.is-dev) .dev-only{display:none!important}
 a.pitem.dl{display:block;color:inherit;text-decoration:none}
 a.pitem.dl:hover{border-color:var(--gold)}
 .dlbtn{font:700 13px var(--body);color:var(--on-gold);background:var(--gold);border-radius:999px;padding:6px 14px;flex:none}
+#newPlayer > summary{display:none}
+#newPlayer:not([open]){display:none}
+.chkrow{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:12px;border-top:1px solid var(--line);cursor:pointer}
+.chkrow:first-child{border-top:0}
+.chkrow span{display:grid;gap:2px;font-weight:600}
+.chkrow small{font-weight:400;color:var(--muted);font-size:13px}
+.chkrow input{width:22px;height:22px;flex:0 0 auto}
+.krow.inactive{opacity:.55}
 .who{display:flex;gap:12px;align-items:center}
 .who b{font-size:17px}
 .av{flex:0 0 auto;width:46px;height:46px;border-radius:50%;background:var(--gold);color:#111;display:flex;align-items:center;justify-content:center;font:700 22px var(--display)}
@@ -388,20 +396,25 @@ td input.email{width:220px}
     <div id="lines"></div>
   </section>
 
-  <section data-section="spieler" class="panel">
+  <section data-section="spieler" class="panel" id="spList">
     <h2>Spieler <small id="playerCount"></small></h2>
+    <div class="actions"><button id="btnNewPlayer">+ Spieler anlegen</button><button id="btnWaInvite">Neuen Spieler einladen (WhatsApp)</button></div>
+    <details class="new" id="newPlayer"><summary>Spieler anlegen</summary>
     <div class="row">
       <input id="newName" placeholder="Name" aria-label="Name des neuen Spielers">
       <input id="newNumber" type="number" min="0" max="99" step="1" placeholder="Nr." aria-label="Spielernummer" style="width:70px">
       <select id="newPos" aria-label="Position"><option value="O">Sturm</option><option value="D">Verteidigung</option><option value="G">Tor</option></select>
       <input id="newRating" type="number" min="1" max="10" step="0.1" value="5" aria-label="Stärke" style="width:80px">
-      <button id="btnAdd">Spieler anlegen</button>
+      <button id="btnAdd" class="primary">Spieler anlegen</button>
     </div>
-    <div class="row" style="margin-top:8px"><button id="btnWaInvite">Neuen Spieler einladen (WhatsApp)</button>
-      <span class="muted">Schickt Link und Anleitung; die E-Mail-Adresse trägst du danach hier beim Spieler ein.</span></div>
-    <div class="tablewrap" id="playerTable"></div>
-    <p class="muted">Stärke 1–10, nur für Trainer sichtbar. <b>Zugang:</b> Trägst du eine E-Mail-Adresse ein, kann sich der Spieler damit anmelden, Termine sehen und absagen. Ohne Adresse ist er Gast. Inaktive Spieler verschwinden aus den Terminen, „Löschen“ entfernt sie endgültig.</p>
+    </details>
+    <div class="row"><label class="inline" for="spSort">Sortieren
+      <select id="spSort"><option value="name">Name</option><option value="number">Nummer</option><option value="pos">Position</option><option value="rating">Stärke</option></select></label></div>
+    <div id="playerTable" class="plist"></div>
+    <details class="hint"><summary>ⓘ So funktioniert's</summary><p class="muted">Spieler antippen: Name, Nummer, Position, Stärke (1–10, nur für Trainer sichtbar) und Zugang ändern. <b>Zugang:</b> Mit E-Mail-Adresse kann sich der Spieler anmelden, Termine sehen und absagen. Ohne Adresse ist er Gast. Inaktive Spieler verschwinden aus den Terminen. Den WhatsApp-Text für neue Spieler schickst du mit „Neuen Spieler einladen“; die E-Mail-Adresse trägst du danach beim Spieler ein.</p></details>
   </section>
+
+  <section data-section="spieler" class="panel" id="spPlayer" hidden></section>
 
   <section data-section="statistik" class="panel">
     <h2>Statistik <small id="statInfo"></small></h2>
@@ -1163,7 +1176,7 @@ function view(){
   if (S.denied) return "denied";
   if (!S.role) return "loading";
   const h = location.hash.slice(1);
-  if (h === "spieler" && isTrainer()) return "spieler";
+  if ((h === "spieler" || h.startsWith("spieler/")) && isTrainer()) return "spieler";
   if (h === "statistik" && isTrainer()) return "statistik";
   if (h === "ergebnisse" && isTrainer()) return "ergebnisse";
   if ((h === "kasse" || h.startsWith("kasse/")) && isKasse()) return "kasse";
@@ -1189,7 +1202,7 @@ function render(){
     else if (did) S.sel = did;
   }
   if (v==="training") { renderTodo(); renderTrainings(); renderAbsences(); renderDetail(); if (isTrainer()) renderPresent(); renderTeams(); renderLines(); }
-  if (v==="spieler") { if ($("#playerTable").contains(document.activeElement)) pendingRender = true; else renderPlayers(); }
+  if (v==="spieler") { if ($("#playerTable").contains(document.activeElement) || $("#spPlayer").contains(document.activeElement)) pendingRender = true; else renderPlayers(); }
   if (v==="statistik") renderStats();
   if (v==="ergebnisse") renderResults();
   if (v==="info") renderNews();
@@ -1530,30 +1543,46 @@ function linesText(t, ln){
   return `${kindOf(t)} ${dDay(t.start)} ${tRange(t)} Uhr${t.place ? " – "+t.place : ""}\n${rows.join("\n")}`;
 }
 
+// Player list (trainers): slim rows; tapping one opens the player page "#spieler/p/<id>"
+const spielerPid = () => { const m = /^#spieler\/p\/(.+)$/.exec(location.hash); return m ? decodeURIComponent(m[1]) : null; };
 function renderPlayers(){
   pendingRender = false;
-  const all = Object.values(S.players);
+  const all = Object.values(S.players), pid = spielerPid();
+  if (pid && S.loaded.players && !S.players[pid]) { history.replaceState(null, "", location.pathname + location.search + "#spieler"); }
+  const page = pid && S.players[pid] ? S.players[pid] : null;
+  $("#spList").hidden = !!page; $("#spPlayer").hidden = !page;
   $("#playerCount").textContent = `${all.filter(p=>p.active!==false).length} aktiv · ${all.filter(p=>p.email).length} mit Zugang`;
-  if (!all.length) { $("#playerTable").innerHTML = `<div class="empty">${!S.loaded.players ? "Spieler werden geladen …" : "Noch keine Spieler angelegt."}</div>`; return; }
-  const {key, dir} = S.sort;
-  const rows = all.slice().sort((a,b)=> (a.active===false)-(b.active===false) || (key==="name" ? byName(a,b) : key==="number" ? (nrOf(a) ?? 999)-(nrOf(b) ?? 999) : key==="pos" ? "GDO".indexOf(a.pos)-"GDO".indexOf(b.pos) : (+a.rating||0)-(+b.rating||0)) * dir);
-  const th = (k,l,c="") => `<th class="${c}" data-sort="${k}" aria-sort="${key===k?(dir>0?"ascending":"descending"):"none"}">${l}${key===k?(dir>0?" ▲":" ▼"):""}</th>`;
-  $("#playerTable").innerHTML = `<table><thead><tr>${th("name","Name")}${th("number","Nr.","num")}${th("pos","Position")}${th("rating","Stärke","num")}<th>Zugang (E-Mail)</th><th>Kassier</th><th class="dev-only">Trainer</th><th>Trikots</th><th>Aktiv</th><th><span hidden>Löschen</span></th></tr></thead><tbody>${
-    rows.map(p=>`<tr class="${p.active===false?"inactive":""}" data-pid="${esc(p.id)}">
-      <td><input class="pname" data-f="name" value="${esc(p.name)}" aria-label="Name"></td>
-      <td class="num"><input class="nr" data-f="number" type="number" min="0" max="99" step="1" value="${nrOf(p) ?? ""}" placeholder="–" aria-label="Nummer ${esc(p.name)}"></td>
-      <td><select data-f="pos" aria-label="Position ${esc(p.name)}">${["G","D","O"].map(k=>`<option value="${k}" ${p.pos===k?"selected":""}>${POS[k]}</option>`).join("")}</select></td>
-      <td class="num"><input class="rating" data-f="rating" type="number" min="1" max="10" step="0.1" value="${round2(+p.rating||5)}" aria-label="Stärke ${esc(p.name)}"></td>
-      <td><input class="email" data-f="email" type="email" value="${esc(p.email||"")}" placeholder="Gast – kein Zugang" aria-label="Zugang ${esc(p.name)}"></td>
-      <td>${(() => { const em = (p.email||"").toLowerCase(), ok = em && em !== S.me?.email && !isOtherTrainer(em);
-        return `<input type="checkbox" data-cashier="${esc(p.id)}" ${S.members[em]?.role === "cashier" ? "checked" : ""} ${ok ? "" : "disabled"} aria-label="${esc(p.name)} ist Kassier" title="${ok ? "Kassier: verwaltet die Kasse" : "Nur für Spieler mit Zugang"}">`; })()}</td>
-      <td class="dev-only">${(() => { const em = (p.email||"").toLowerCase(), m = S.members[em], role = m ? (m.role || "trainer") : "";
-        const ok = em && em !== S.me?.email && role !== "developer";
-        return `<input type="checkbox" data-trainer="${esc(p.id)}" ${role === "trainer" || role === "developer" ? "checked" : ""} ${ok ? "" : "disabled"} aria-label="${esc(p.name)} ist Trainer" title="${ok ? "Trainer-Rechte (nur Entwickler)" : role === "developer" ? "Entwickler – nur in der Datenbank änderbar" : "Nur für Spieler mit Zugang"}">`; })()}</td>
-      <td><input type="checkbox" data-f="material" ${p.material?"checked":""} aria-label="${esc(p.name)} ist für die Trikots verantwortlich" title="Verantwortlich für die Trikots"></td>
-      <td><input type="checkbox" data-f="active" ${p.active!==false?"checked":""} aria-label="${esc(p.name)} aktiv"></td>
-      <td><button class="danger" data-del="${esc(p.id)}" aria-label="${esc(p.name)} löschen">Löschen</button></td></tr>`).join("")
-  }</tbody></table>`;
+  const roleOf = p => { const m = S.members[(p.email || "").toLowerCase()]; return m ? (m.role || "trainer") : ""; };
+  if (!page) {
+    $("#spSort").value = S.sort.key;
+    if (!all.length) { $("#playerTable").innerHTML = `<div class="empty">${!S.loaded.players ? "Spieler werden geladen …" : "Noch keine Spieler angelegt."}</div>`; return; }
+    const {key, dir} = S.sort;
+    const rows = all.slice().sort((a,b)=> (a.active===false)-(b.active===false) || (key==="name" ? byName(a,b) : key==="number" ? (nrOf(a) ?? 999)-(nrOf(b) ?? 999) : key==="pos" ? "GDO".indexOf(a.pos)-"GDO".indexOf(b.pos) || byName(a,b) : (+a.rating||0)-(+b.rating||0)) * dir);
+    const ROLE = {trainer: "Trainer", developer: "Entwickler", cashier: "Kassier"};
+    $("#playerTable").innerHTML = rows.map(p => {
+      const tags = [POS[p.pos] || "", p.email ? "Zugang" : "Gast", ROLE[roleOf(p)] || "", p.material ? "Trikots" : "", p.active === false ? "inaktiv" : ""].filter(Boolean).join(" · ");
+      return `<button class="krow${p.active === false ? " inactive" : ""}" data-spl="${esc(p.id)}"><span>${nrHTML(p)}${esc(p.name)}<small>${tags}</small></span>
+        <span class="pres">${fmt(+p.rating || 5)}</span><span class="chev" aria-hidden="true">›</span></button>`;
+    }).join("");
+    return;
+  }
+  const p = page, em = (p.email || "").toLowerCase(), role = roleOf(p);
+  const cashOk = em && em !== S.me?.email && !isOtherTrainer(em), trOk = em && em !== S.me?.email && role !== "developer";
+  $("#spPlayer").innerHTML = `<div class="dhead"><a class="back" href="#spieler">← Spieler</a><h2>${nrHTML(p)}${esc(p.name)}</h2></div>
+    <div class="form" data-pid="${esc(p.id)}">
+      <label>Name<input class="pname" data-f="name" value="${esc(p.name)}"></label>
+      <label>Nummer<input class="nr" data-f="number" type="number" min="0" max="99" step="1" value="${nrOf(p) ?? ""}" placeholder="–"></label>
+      <label>Position<select data-f="pos">${["G","D","O"].map(k=>`<option value="${k}" ${p.pos===k?"selected":""}>${POS[k]}</option>`).join("")}</select></label>
+      <label>Stärke (1–10, nur Trainer sehen sie)<input class="rating" data-f="rating" type="number" min="1" max="10" step="0.1" value="${round2(+p.rating||5)}"></label>
+      <label>Zugang (E-Mail)<input class="email" data-f="email" type="email" value="${esc(p.email||"")}" placeholder="Gast – kein Zugang"></label>
+    </div>
+    <div class="setlist" data-pid="${esc(p.id)}">
+      <label class="chkrow"><span>Aktiv<small>Inaktive Spieler verschwinden aus den Terminen</small></span><input type="checkbox" data-f="active" ${p.active!==false?"checked":""}></label>
+      <label class="chkrow"><span>Trikots<small>Verantwortlich für die Trikots</small></span><input type="checkbox" data-f="material" ${p.material?"checked":""}></label>
+      <label class="chkrow"><span>Kassier<small>${cashOk ? "Verwaltet die Kasse" : !em ? "Nur für Spieler mit Zugang" : em === S.me?.email ? "Das bist du" : "Trainer verwalten die Kasse ohnehin"}</small></span><input type="checkbox" data-cashier="${esc(p.id)}" ${S.members[em]?.role === "cashier" ? "checked" : ""} ${cashOk ? "" : "disabled"}></label>
+      <label class="chkrow dev-only"><span>Trainer<small>${trOk ? "Trainer-Rechte (nur Entwickler)" : role === "developer" ? "Entwickler – nur in der Datenbank änderbar" : "Nur für Spieler mit Zugang"}</small></span><input type="checkbox" data-trainer="${esc(p.id)}" ${role === "trainer" || role === "developer" ? "checked" : ""} ${trOk ? "" : "disabled"}></label>
+    </div>
+    <div class="row"><button class="danger" data-del="${esc(p.id)}">Spieler löschen</button></div>`;
 }
 
 /* ---------- statistics (trainers) ---------- */
@@ -2305,6 +2334,8 @@ document.addEventListener("click", e => {
       api.setNoShow(pt, cur.includes(id) ? cur.filter(x => x !== id) : [...cur, id]);
     }
     else if (t.dataset.ssort) { const k=t.dataset.ssort; S.statSort = {key:k, dir: S.statSort.key===k ? -S.statSort.dir : (k==="name"||k==="pos" ? 1 : -1)}; renderStats(); }
+    else if (t.dataset.spl) { location.hash = "#spieler/p/" + encodeURIComponent(t.dataset.spl); }
+    else if (t.id === "btnNewPlayer") { const d = $("#newPlayer"); d.open = !d.open; if (d.open) $("#newName").focus(); }
     else if (t.dataset.sort) { const k=t.dataset.sort; S.sort = {key:k, dir: S.sort.key===k ? -S.sort.dir : 1}; renderPlayers(); }
     else if (t.id==="btnGoogle") signInGoogle();
     else if (t.id==="btnSendLink") sendLink();
@@ -2388,6 +2419,7 @@ document.addEventListener("change", e => {
       .catch(e => { status("Umstellen hat nicht geklappt (" + (e?.message || "Fehler") + ").", true); el.disabled = false; });
     return;
   }
+  if (el.id === "spSort") { S.sort = {key: el.value, dir: el.value === "rating" ? -1 : 1}; renderPlayers(); return; }
   if (el.id === "statRange") { renderStats(); return; }
   if (el.id === "nnKind") { $("#nnOptWrap").hidden = el.value !== "poll"; $("#btnNews").textContent = el.value === "poll" ? "Umfrage senden" : "Senden"; return; }
   if (el.id === "kasseFilter" || el.id === "tariffSeason" || el.id === "ledgerFilter") { renderKasse(); return; }
@@ -2413,7 +2445,7 @@ document.addEventListener("change", e => {
   }
   if ((el.id === "lineD" || el.id === "lineO") && tg && draftLines(tg)) {
     api.setLines(tg.id, cleanLines(tg, {...draftLines(tg), d: +$("#lineD").value || 2, o: +$("#lineO").value || 3})); return;
-  } const tr = el.closest("tr[data-pid]"); if (!tr || !el.dataset.f) return;
+  } const tr = el.closest("[data-pid]"); if (!tr || !el.dataset.f) return;
   const id = tr.dataset.pid, f = el.dataset.f;
   if (f==="number") {
     const raw = el.value.trim();
@@ -2432,7 +2464,7 @@ document.addEventListener("change", e => {
   else v = el.value;
   api.updPlayer(id, {[f]:v});
 });
-document.addEventListener("focusout", () => setTimeout(()=>{ if (pendingRender && !$("#playerTable").contains(document.activeElement)) renderPlayers(); }, 0));
+document.addEventListener("focusout", () => setTimeout(()=>{ if (pendingRender && !$("#playerTable").contains(document.activeElement) && !$("#spPlayer").contains(document.activeElement)) renderPlayers(); }, 0));
 function closeMenu(){ $(".menu").classList.remove("open"); $("#menuBtn").setAttribute("aria-expanded", "false"); }
 document.addEventListener("click", e => {
   if (e.target.closest("#menuBtn")) {
