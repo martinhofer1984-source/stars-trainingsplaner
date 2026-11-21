@@ -158,6 +158,29 @@ body:not(.is-dev) .dev-only{display:none!important}
 a.pitem.dl{display:block;color:inherit;text-decoration:none}
 a.pitem.dl:hover{border-color:var(--gold)}
 .dlbtn{font:700 13px var(--body);color:var(--on-gold);background:var(--gold);border-radius:999px;padding:6px 14px;flex:none}
+.who{display:flex;gap:12px;align-items:center}
+.who b{font-size:17px}
+.av{flex:0 0 auto;width:46px;height:46px;border-radius:50%;background:var(--gold);color:#111;display:flex;align-items:center;justify-content:center;font:700 22px var(--display)}
+.feecard{border:1px solid var(--line);border-radius:10px;padding:10px 12px;background:var(--surface-2);display:grid;gap:6px}
+.feecard.due{border-color:var(--gold)}
+.feecard summary{display:grid;gap:2px;cursor:pointer;list-style:none}
+.feecard summary::-webkit-details-marker{display:none}
+.feecard .big{font:700 22px var(--display)}
+.feecard.due .big{color:var(--gold)}.feecard.paid .big{color:var(--a)}
+.setlist{border:1px solid var(--line);border-radius:10px;overflow:hidden;background:var(--surface-2)}
+details.set{border-top:1px solid var(--line);padding:0 12px}
+details.set:first-child{border-top:0}
+details.set > summary{display:flex;align-items:center;gap:8px;padding:13px 0;cursor:pointer;font-weight:600;list-style:none}
+details.set > summary::-webkit-details-marker{display:none}
+details.set > summary .v{margin-left:auto;font-weight:400;color:var(--muted);font-size:14px}
+details.set > summary .v.warn{color:var(--warn)}
+details.set > summary::after{content:"›";color:var(--muted);font-size:18px;margin-left:6px}
+details.set > summary:not(:has(.v))::after{margin-left:auto}
+details.set[open] > summary::after{content:"▾";font-size:15px}
+#pushBox{display:grid;gap:8px}
+#pushBox p{margin:0}
+details.set > :not(summary){margin:0 0 12px}
+details.set[hidden]{display:none}
 .kmet{display:flex;justify-content:space-between;align-items:baseline;background:var(--surface-2);border:1px solid var(--line);border-radius:10px;padding:10px 14px}
 .kmet span{font-weight:600}
 .kmet b{font:700 24px var(--display);font-variant-numeric:tabular-nums}
@@ -524,40 +547,35 @@ td input.email{width:220px}
     </div>
   </section>
 
-  <section data-section="konto" class="panel" id="myFeesPanel" hidden>
-    <h2>Meine Beiträge</h2>
-    <div id="myFees"></div>
+  <section data-section="konto" class="panel" id="kontoHead">
+    <div class="who"><div class="av" id="kAv" aria-hidden="true"></div>
+      <div style="min-width:0"><b id="kName"></b><div class="muted"><span id="userEmail"></span> · <span id="roleInfo"></span> <span id="netState"></span></div></div></div>
+    <div id="myFeesPanel" hidden><div id="myFees"></div></div>
   </section>
 
-  <section data-section="konto" class="panel" id="bdayPanel" hidden>
-    <h2>Geburtstag</h2>
-    <p class="muted">Freiwillig: An deinem Geburtstag gratuliert die App in der Team-Info. Das Jahr wird nicht gespeichert.</p>
+  <section data-section="konto" class="panel">
+    <h2>Einstellungen</h2>
+    <div class="setlist">
+      <details class="set" id="setPush"><summary>Benachrichtigungen<span class="v" id="vPush"></span></summary><div id="pushBox"></div></details>
+      <details class="set" id="bdayPanel" hidden><summary>Geburtstag<span class="v" id="vBday"></span></summary>
+        <p class="muted">Freiwillig: An deinem Geburtstag gratuliert die App in der Team-Info. Das Jahr wird nicht gespeichert.</p>
     <div class="row"><select id="bdDay" aria-label="Tag"></select><select id="bdMonth" aria-label="Monat"></select>
       <button id="btnBday" class="primary">Speichern</button><button id="btnBdayDel">Entfernen</button></div>
-  </section>
-
-  <section data-section="konto" class="panel">
-    <h2>Benachrichtigungen</h2>
-    <div id="pushBox"></div>
-  </section>
-
-  <section data-section="konto" class="panel">
-    <h2>Konto</h2>
-    <p>Angemeldet als <b id="userEmail"></b> <span id="netState" class="muted"></span></p>
-    <p id="roleInfo" class="muted"></p>
-    <div class="row"><button id="btnLogout">Abmelden</button></div>
+      </details>
+      <details class="set"><summary>Datenschutz</summary>    <p class="muted">Gespeichert werden Name, Position, die E-Mail-Adresse für die Anmeldung und die Zu- und Absagen. Alle Mitspieler sehen, wer zu einem Termin kommt, und die Teams. Die Stärkewerte sehen nur die Trainer. Die Daten liegen bei Google Firebase im EU-Rechenzentrum und werden nur für die Trainingsplanung genutzt.</p></details>
+    </div>
   </section>
 
   <section data-section="konto" class="panel dev-only">
-    <h2>Testdatenbank</h2>
+    <h2>Entwickler</h2>
+    <div class="setlist">
+      <details class="set"><summary>Testdatenbank<span class="v" id="vDb"></span></summary>
     <p id="dbInfo"></p>
     <p class="muted">Zum Ausprobieren, ohne die Mannschaft zu stören: Auf diesem Gerät wird dann statt der Live-Daten die Testdatenbank verwendet (roter Balken oben). Push-Nachrichten daraus beginnen mit „TEST:“ und gehen nur an Geräte, die im Testmodus Benachrichtigungen eingeschaltet haben.</p>
     <div class="row"><button id="btnDbSwitch" class="primary"></button><button class="danger" data-dbfill>Mit Live-Daten füllen</button></div>
     <p class="muted">„Mit Live-Daten füllen“ löscht alles in der Testdatenbank und kopiert Spieler, Zugänge, Termine, Kasse, Abwesenheiten und Geburtstage aus der Live-Datenbank. Team-Info und Push-Anmeldungen werden nicht kopiert. Dazu kommen Testfälle: ein eigener Spieler für dich (falls du keinem zugeordnet bist), drei Testtermine, eine Spätabmeldung zum Bestätigen, fehlende Trikots, eine Umfrage. Die Live-Daten bleiben unverändert.</p>
-  </section>
-
-  <section data-section="konto" class="panel dev-only">
-    <h2>Datensicherung</h2>
+      </details>
+      <details class="set"><summary>Datensicherung</summary>
     <p class="muted">Die Daten liegen in der Mannschafts-Datenbank. Eine Sicherung als Datei schützt zusätzlich vor versehentlichem Löschen. Beim Laden einer Sicherung werden die Spieler ersetzt, die Termine bleiben. Eine Termin-Datei legt dagegen nur neue künftige Termine an (schon vorhandene werden übersprungen) und kündigt sie mit einer einzigen Team-Info an. Eine Beitrags-Datei stellt die genannten Spieler auf Jahresbeitrag und hakt den Beitrag der Saison mit dem Zahlungsdatum ab.</p>
     <div class="row">
       <button id="btnExport" class="primary">Daten sichern (.json)</button>
@@ -565,12 +583,11 @@ td input.email{width:220px}
       <input type="file" id="importFile" accept=".json,application/json" hidden>
       <button id="btnImportConfirm" class="danger" hidden></button>
     </div>
+      </details>
+    </div>
   </section>
 
-  <section data-section="konto" class="panel">
-    <h2>Datenschutz</h2>
-    <p class="muted">Gespeichert werden Name, Position, die E-Mail-Adresse für die Anmeldung und die Zu- und Absagen. Alle Mitspieler sehen, wer zu einem Termin kommt, und die Teams. Die Stärkewerte sehen nur die Trainer. Die Daten liegen bei Google Firebase im EU-Rechenzentrum und werden nur für die Trainingsplanung genutzt.</p>
-  </section>
+  <div data-section="konto" class="row" style="justify-content:center"><button id="btnLogout">Abmelden</button></div>
 </main></div>
 
 <script>
@@ -1885,9 +1902,13 @@ function renderMyFees(){
   panel.hidden = !pid || !S.roster[pid];
   if (panel.hidden) return;
   const open = openCharges(pid), sum = open.reduce((s, c) => s + c.amount, 0), plan = planOf(pid);
-  box.innerHTML = `<p>Beitragsart: <b>${PLANS[plan]}</b></p>
-    <p class="${sum > 0 ? "note warn" : "note"}">${sum > 0 ? `Offen: <b>${euro(sum)}</b> – bitte beim Kassier begleichen.` : "Alles bezahlt. Danke!"}</p>
-    ${open.length ? `<div class="plist">${open.map(c => `<div class="charge"><span>${esc(c.label)}</span><b>${euro(c.amount)}</b></div>`).join("")}</div>` : ""}`;
+  // One card: open amount (tap to see the charges) or "Alles bezahlt"
+  const wasOpen = !!box.querySelector("details")?.open;
+  box.innerHTML = sum > 0
+    ? `<details class="feecard due"${wasOpen ? " open" : ""}><summary><span class="muted">Meine Beiträge · ${PLANS[plan]}</span>
+        <span class="big">Offen ${euro(sum)}</span><span class="muted">${open.length} ${open.length === 1 ? "Posten" : "Posten"} anzeigen ▾ · bezahlen beim Kassier</span></summary>
+        <div class="plist">${open.map(c => `<div class="charge"><span>${esc(c.label)}</span><b>${euro(c.amount)}</b></div>`).join("")}</div></details>`
+    : `<div class="feecard paid"><span class="muted">Meine Beiträge · ${PLANS[plan]}</span><span class="big">Alles bezahlt</span><span class="muted">Danke!</span></div>`;
 }
 
 /* ---------- export (CSV for Excel) ---------- */
@@ -2097,8 +2118,17 @@ function renderKonto(){
   if (!$("#bdDay").options.length) fillBirthday();
   $("#userEmail").textContent = S.user?.email || "";
   $("#netState").textContent = navigator.onLine ? "" : "· offline – Änderungen werden übertragen, sobald wieder Netz da ist";
-  const my = S.me?.playerId && (S.roster[S.me.playerId]?.name);
-  $("#roleInfo").textContent = (isDev() ? "Rolle: Entwickler" : isTrainer() ? "Rolle: Trainer" : S.role === "cashier" ? "Rolle: Kassier" : "Rolle: Mitspieler") + (my ? ` · Spieler: ${my}` : "");
+  const me = S.me?.playerId && S.roster[S.me.playerId];
+  const name = me?.name || S.me?.name || (S.user?.email || "").split("@")[0];
+  $("#kName").textContent = name + (me && nrOf(me) !== null ? ` · Nr. ${nrOf(me)}` : "");
+  $("#kAv").textContent = (name || "?").trim().charAt(0).toUpperCase();
+  $("#roleInfo").textContent = (isDev() ? "Entwickler" : isTrainer() ? "Trainer" : S.role === "cashier" ? "Kassier" : "Mitspieler") + (isDev() ? (TEST_DB ? " · Testdatenbank" : " · Live-Datenbank") : "");
+  const ps = pushState();
+  $("#vPush").textContent = {on: "An", off: "Aus", denied: "blockiert", ios: "nur in der App", unsupported: "nicht möglich", setup: ""}[ps] || "";
+  $("#vPush").classList.toggle("warn", ps !== "on");
+  const bd = S.profile?.birthday;
+  $("#vBday").textContent = bd ? `${+bd.slice(3)}. ${MONTHS[+bd.slice(0, 2) - 1]}` : "nicht eingetragen";
+  $("#vDb").textContent = TEST_DB ? "an" : "aus";
 }
 
 // WhatsApp: opens WhatsApp with a prepared text; the sender picks the group or person
