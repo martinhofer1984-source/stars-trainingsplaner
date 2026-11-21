@@ -252,7 +252,7 @@ td input.email{width:220px}
     <h2>Termine <small id="tCount"></small></h2>
     <div id="todoBox" class="note todo" hidden></div>
     <div id="tList" class="tlist"></div>
-    <div class="row" id="calAll"><button id="btnIcsAll">Alle Termine in meinen Kalender</button><button id="btnCalSub">Kalender abonnieren</button></div>
+    <div class="row" id="calAll"><button id="btnCalSub">Kalender abonnieren</button></div>
     <div id="calSubBox" class="note" hidden></div>
     <details class="new" id="newAbsence">
       <summary>Krank oder im Urlaub? Abwesenheit melden</summary>
@@ -1591,16 +1591,10 @@ async function openCalSub(renew){
     const https = `${APP_URL}kalender/${TEST_DB ? "test/" : ""}${token}.ics`, webcal = https.replace(/^https:/, "webcal:");
     box.innerHTML = `<span><b>Kalender abonnieren:</b> Neue, geänderte und ausgefallene Termine kommen von selbst in deinen Kalender, mit deinem Stand (abgesagt, Warteliste). Je nach Kalender dauert eine Änderung bis zu einigen Stunden.</span>
       <div class="row"><a class="btn primary" href="${esc(webcal)}">iPhone, Mac, Outlook</a>
-        <a class="btn" href="https://calendar.google.com/calendar/render?cid=${encodeURIComponent(webcal)}" target="_blank" rel="noopener">Google Kalender</a>
         <button data-copy="${esc(https)}">Link kopieren</button></div>
+      <span><b>Google Kalender:</b> „Link kopieren“, dann am PC auf calendar.google.com links neben „Weitere Kalender“ auf <b>+</b> → <b>Per URL</b> → Link einfügen → <b>Kalender hinzufügen</b> (nicht „öffentlich machen“). Danach erscheint er auch in der Google-Kalender-App am Handy.</span>
       <span class="muted">Der Link ist persönlich – bitte nicht weitergeben. <button data-calrenew>Neuen Link erstellen</button> macht den alten ungültig.</span>`;
   } catch (e) { box.textContent = "Der Abo-Link konnte nicht erstellt werden (" + (e?.code || e?.message || "Fehler") + "). Ist das Internet an?"; }
-}
-// All coming appointments in one file
-function downloadAllIcs(){
-  if (!S.trainings.length) { status("Es sind keine Termine geplant.", true); return; }
-  saveIcs(`stars-termine-${today()}.ics`, S.trainings);
-  status(`${S.trainings.length} Termine als Kalenderdatei gespeichert – öffnen und „Alle hinzufügen“ wählen.`);
 }
 function downloadIcs(t){
   const d = new Date(t.start), name = `stars-${kindOf(t).toLowerCase()}-${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}.ics`;
@@ -2031,7 +2025,6 @@ document.addEventListener("click", e => {
       if (+dd > [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][+mm - 1]) { status("Diesen Tag gibt es im gewählten Monat nicht.", true); return; }
       api.setBirthday(`${mm}-${dd}`); status("Geburtstag gespeichert.");
     }
-    else if (t.id === "btnIcsAll") downloadAllIcs();
     else if (t.id === "btnCalSub") { if ($("#calSubBox").hidden) openCalSub(false); else $("#calSubBox").hidden = true; }
     else if ("calrenew" in t.dataset) confirmBtn(t, () => openCalSub(true));
     else if (t.dataset.copy) copy(t.dataset.copy, t);
